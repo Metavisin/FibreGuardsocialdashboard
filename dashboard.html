@@ -279,6 +279,31 @@
     background: var(--bg-1); border-radius: 4px;
   }
 
+  /* SPARKLINE */
+  .sparkline-wrap {
+    margin-bottom: 12px; padding: 8px 9px;
+    background: var(--bg-1); border-radius: var(--radius-xs);
+  }
+  .sparkline-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 5px;
+  }
+  .sparkline-title {
+    font-size: 9px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.3px; color: var(--text-3);
+  }
+  .sparkline-trend {
+    font-size: 10px; font-weight: 700; display: flex; align-items: center; gap: 3px;
+  }
+  .sparkline-trend.up { color: var(--green); }
+  .sparkline-trend.down { color: var(--red); }
+  .sparkline-trend.flat { color: var(--text-3); }
+  .sparkline-svg { display: block; width: 100%; height: 32px; }
+  .sparkline-empty {
+    font-size: 9px; color: var(--text-3); opacity: 0.6;
+    text-align: center; padding: 6px 0;
+  }
+
   /* EMPTY */
   .empty {
     text-align: center; padding: 40px; color: var(--text-3);
@@ -670,6 +695,9 @@
       });
       h += `</div>`;
 
+      // Sparkline
+      h += buildSparkline(d);
+
       // Footer
       h += `<div class="ad-footer">`;
       if (d._boost === 'tbd') {
@@ -685,6 +713,83 @@
     h += `</div>`;
 
     h += `</div>`; // close section
+    return h;
+  }
+
+  // ====== SPARKLINE ======
+  // Collects all snapshots for a given ad+platform across time, sorted chronologically
+  function getSparklineData(ad) {
+    return allData
+      .filter(d => d.ad_name === ad.ad_name && d.publisher_platform === ad.publisher_platform)
+      .sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at));
+  }
+
+  // Picks the metric to chart based on campaign type
+  function sparklineMetric(d) {
+    if (d.campaign_type === 'awareness') return d.reach || 0;
+    return (d.shares || 0) + (d.saves || 0) + (d.comments || 0) + (d.likes || 0);
+  }
+
+  function sparklineLabel(d) {
+    return d.campaign_type === 'awareness' ? 'Reach Trend' : 'Engagement Trend';
+  }
+
+  // Builds an inline SVG sparkline from an array of numeric values
+  function buildSparklineSVG(values, color) {
+    const w = 260, h = 32, pad = 2;
+    if (values.length < 2) return '';
+    const min = Math.min(...values), max = Math.max(...values);
+    const range = max - min || 1;
+    const points = values.map((v, i) => {
+      const x = pad + (i / (values.length - 1)) * (w - pad * 2);
+      const y = pad + (1 - (v - min) / range) * (h - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    // Gradient fill under the line
+    const fillPoints = [
+      `${pad},${h}`,
+      ...points,
+      `${(w - pad).toFixed(1)},${h}`
+    ].join(' ');
+    return `<svg class="sparkline-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <defs><linearGradient id="sg_${color.replace('#','')}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.25"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+      </linearGradient></defs>
+      <polygon points="${fillPoints}" fill="url(#sg_${color.replace('#','')})" />
+      <polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${points[points.length-1].split(',')[0]}" cy="${points[points.length-1].split(',')[1]}" r="2.5" fill="${color}"/>
+    </svg>`;
+  }
+
+  // Builds the full sparkline card section
+  function buildSparkline(ad) {
+    const history = getSparklineData(ad);
+    const values = history.map(d => sparklineMetric(d));
+    const label = sparklineLabel(ad);
+    const color = ad.campaign_type === 'awareness' ? '#53B7E8' : '#A855F7';
+
+    let h = `<div class="sparkline-wrap">`;
+    h += `<div class="sparkline-header">`;
+    h += `<span class="sparkline-title">${label}</span>`;
+
+    if (values.length >= 2) {
+      const first = values[0], last = values[values.length - 1];
+      const pctChange = first > 0 ? ((last - first) / first * 100) : 0;
+      const arrow = pctChange > 0 ? '\u2191' : pctChange < 0 ? '\u2193' : '\u2192';
+      const cls = pctChange > 0 ? 'up' : pctChange < 0 ? 'down' : 'flat';
+      h += `<span class="sparkline-trend ${cls}">${arrow} ${Math.abs(pctChange).toFixed(0)}%</span>`;
+    }
+
+    h += `</div>`;
+
+    if (values.length >= 2) {
+      h += buildSparklineSVG(values, color);
+    } else {
+      h += `<div class="sparkline-empty">Trend available after 2+ captures</div>`;
+    }
+
+    h += `</div>`;
     return h;
   }
 
