@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FibreGuard Ad Performance Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-0: #070A10;
+    --bg-1: #0C1017;
+    --bg-2: #121722;
+    --bg-3: #1A2030;
+    --bg-hover: #1E2640;
+    --border: #1B2235;
+    --border-light: #283350;
+    --text-1: #F1F3F6;
+    --text-2: #95A1BA;
+    --text-3: #5B6A85;
+    --blue: #53B7E8;
+    --blue-10: rgba(83,183,232,0.10);
+    --blue-20: rgba(83,183,232,0.20);
+    --blue-40: rgba(83,183,232,0.40);
+    --purple: #A855F7;
+    --purple-10: rgba(168,85,247,0.10);
+    --green: #34D399;
+    --green-10: rgba(52,211,153,0.10);
+    --orange: #FBBF24;
+    --orange-10: rgba(251,191,36,0.10);
+    --red: #F87171;
+    --red-10: rgba(248,113,113,0.10);
+    --gold: #FFD700;
+    --radius: 14px;
+    --radius-sm: 10px;
+    --radius-xs: 6px;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg-0);
+    color: var(--text-1);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* TOPNAV */
+  .topnav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px; border-bottom: 1px solid var(--border);
+    background: rgba(12,16,23,0.85); backdrop-filter: blur(16px);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topnav-left { display: flex; align-items: center; gap: 14px; }
+  .logo { display: flex; align-items: center; gap: 8px; }
+  .logo img {
+    height: 26px; width: auto; object-fit: contain;
+  }
+  .logo-sep { width: 1px; height: 20px; background: var(--border); }
+  .logo-sub { font-size: 13px; color: var(--text-3); }
+  .topnav-right { display: flex; align-items: center; gap: 10px; }
+  .meta-text { font-size: 11px; color: var(--text-3); }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 7px 13px; border-radius: var(--radius-xs);
+    font-size: 12px; font-weight: 500; font-family: inherit;
+    cursor: pointer; border: 1px solid var(--border);
+    background: var(--bg-2); color: var(--text-2); transition: all 0.15s;
+  }
+  .btn:hover { border-color: var(--border-light); color: var(--text-1); }
+  .btn svg { width: 13px; height: 13px; }
+
+  /* CONTAINER */
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px 28px; }
+
+  /* FILTERS */
+  .filters-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    margin-bottom: 20px; padding: 12px 16px;
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .filter-group { display: flex; align-items: center; gap: 5px; }
+  .filter-label {
+    font-size: 10px; font-weight: 600; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  select {
+    background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text-1); padding: 6px 26px 6px 10px;
+    border-radius: var(--radius-xs); font-size: 12px; font-family: inherit;
+    cursor: pointer; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%235B6A85' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center;
+  }
+  select:focus { outline: none; border-color: var(--blue); }
+  .pill-group { display: flex; gap: 3px; }
+  .pill {
+    padding: 5px 11px; border-radius: 16px; font-size: 11px; font-weight: 500;
+    cursor: pointer; background: var(--bg-2); color: var(--text-3);
+    border: 1px solid var(--border); transition: all 0.15s; font-family: inherit;
+  }
+  .pill:hover { color: var(--text-2); }
+  .pill.active { background: var(--blue-10); color: var(--blue); border-color: var(--blue-20); }
+  .filter-spacer { flex: 1; }
+
+  /* TBD BANNER */
+  .tbd-banner {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; margin-bottom: 20px;
+    background: var(--orange-10); border: 1px solid rgba(251,191,36,0.12);
+    border-radius: var(--radius-xs); font-size: 12px; color: var(--orange);
+  }
+
+  /* SECTION */
+  .section { margin-bottom: 32px; }
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .section-title { display: flex; align-items: center; gap: 8px; }
+  .section-title h2 { font-size: 16px; font-weight: 700; }
+  .section-icon {
+    width: 28px; height: 28px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center; font-size: 13px;
+  }
+  .icon-awareness { background: var(--blue-10); color: var(--blue); }
+  .icon-engagement { background: var(--purple-10); color: var(--purple); }
+  .section-count {
+    font-size: 11px; color: var(--text-3); background: var(--bg-2);
+    padding: 3px 8px; border-radius: 10px; border: 1px solid var(--border);
+  }
+
+  /* FORMULA */
+  .formula {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 8px 14px; margin-bottom: 14px;
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-xs); font-size: 11px; color: var(--text-3);
+  }
+  .formula strong { color: var(--text-2); }
+  .chip {
+    display: inline-flex; padding: 2px 7px; border-radius: 4px;
+    font-weight: 600; font-size: 10px;
+  }
+  .chip-blue { background: var(--blue-10); color: var(--blue); }
+  .chip-purple { background: var(--purple-10); color: var(--purple); }
+
+  /* SUMMARY */
+  .summary {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px; margin-bottom: 16px;
+  }
+  .summary-card {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 14px;
+  }
+  .summary-label {
+    font-size: 10px; font-weight: 600; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px;
+  }
+  .summary-value { font-size: 22px; font-weight: 800; }
+  .summary-sub { font-size: 10px; color: var(--text-3); margin-top: 1px; }
+
+  /* AD GRID */
+  .ad-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+  }
+
+  /* AD CARD */
+  .ad-card {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+    transition: all 0.2s; position: relative;
+  }
+  .ad-card:hover { border-color: var(--border-light); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+
+  /* WINNER CARD */
+  .ad-card.winner {
+    border-color: var(--gold);
+    box-shadow: 0 0 20px rgba(255,215,0,0.08);
+  }
+  .ad-card.winner:hover {
+    box-shadow: 0 0 30px rgba(255,215,0,0.12), 0 8px 24px rgba(0,0,0,0.3);
+  }
+
+  .winner-crown {
+    position: absolute; top: -1px; left: 50%; transform: translateX(-50%);
+    z-index: 10; background: var(--gold); color: #000;
+    font-size: 10px; font-weight: 800; padding: 3px 12px;
+    border-radius: 0 0 8px 8px; letter-spacing: 0.5px;
+    text-transform: uppercase;
+    box-shadow: 0 2px 8px rgba(255,215,0,0.3);
+  }
+
+  /* VISUAL */
+  .ad-visual {
+    height: 150px; background: var(--bg-1);
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ad-visual img { width: 100%; height: 100%; object-fit: cover; }
+  .ad-visual-placeholder {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    color: var(--text-3); opacity: 0.5;
+  }
+  .ad-visual-placeholder svg { width: 28px; height: 28px; }
+  .ad-visual-placeholder span { font-size: 10px; }
+
+  .badge-platform {
+    position: absolute; top: 8px; left: 8px;
+    padding: 3px 8px; border-radius: 5px;
+    font-size: 10px; font-weight: 600;
+    backdrop-filter: blur(8px);
+  }
+  .plat-instagram { background: rgba(225,48,108,0.85); color: white; }
+  .plat-facebook { background: rgba(24,119,242,0.85); color: white; }
+  .plat-tiktok { background: rgba(0,0,0,0.85); color: white; border: 1px solid rgba(255,255,255,0.15); }
+  .plat-unknown { background: rgba(85,96,120,0.85); color: white; }
+
+  .badge-score {
+    position: absolute; top: 8px; right: 8px;
+    padding: 5px 10px; border-radius: 8px;
+    font-size: 20px; font-weight: 800;
+    background: rgba(0,0,0,0.65); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .score-label {
+    font-size: 8px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: rgba(255,255,255,0.5);
+    display: block; text-align: center; margin-top: -1px;
+  }
+
+  /* CARD BODY */
+  .ad-body { padding: 14px; }
+  .ad-name {
+    font-size: 12px; font-weight: 500; line-height: 1.4;
+    margin-bottom: 10px; color: var(--text-1);
+    display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden;
+    min-height: 34px;
+  }
+
+  .ad-metrics {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    margin-bottom: 12px;
+  }
+  .ad-metric {
+    padding: 7px 9px; background: var(--bg-1); border-radius: var(--radius-xs);
+  }
+  .ad-metric-label {
+    font-size: 9px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.3px; color: var(--text-3); margin-bottom: 1px;
+  }
+  .ad-metric-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* CARD FOOTER */
+  .ad-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 10px; border-top: 1px solid var(--border);
+  }
+  .boost-pill {
+    padding: 4px 10px; border-radius: 14px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .boost-green { color: var(--green); background: var(--green-10); }
+  .boost-orange { color: var(--orange); background: var(--orange-10); }
+  .boost-red { color: var(--red); background: var(--red-10); }
+
+  .bench-tbd {
+    font-size: 10px; color: var(--text-3); padding: 3px 7px;
+    background: var(--bg-1); border-radius: 4px;
+  }
+
+  /* EMPTY */
+  .empty {
+    text-align: center; padding: 40px; color: var(--text-3);
+    border: 1px dashed var(--border); border-radius: var(--radius);
+    background: var(--bg-1);
+  }
+  .empty h3 { font-size: 14px; color: var(--text-2); margin-bottom: 3px; }
+  .empty p { font-size: 12px; }
+
+  /* LOADING */
+  .loading {
+    display: flex; align-items: center; justify-content: center;
+    padding: 60px; color: var(--text-3); font-size: 13px;
+  }
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid var(--border);
+    border-top-color: var(--blue); border-radius: 50%;
+    animation: spin 0.7s linear infinite; margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+
+  @media (max-width: 768px) {
+    .container { padding: 14px; }
+    .topnav { padding: 10px 14px; }
+    .ad-grid { grid-template-columns: 1fr; }
+    .filters-bar { flex-direction: column; align-items: stretch; }
+    .summary { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="topnav-left">
+    <div class="logo">
+      <img src="/assets/White fibreguard logo.png" alt="FibreGuard">
+    </div>
+    <div class="logo-sep"></div>
+    <span class="logo-sub">Ad Performance</span>
+  </div>
+  <div class="topnav-right">
+    <span class="meta-text" id="lastUpdated"></span>
+    <button class="btn" onclick="loadData()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      Refresh
+    </button>
+  </div>
+</nav>
+
+<div class="container">
+
+  <div class="filters-bar">
+    <div class="filter-group">
+      <span class="filter-label">Platform</span>
+      <select id="filterPlatform" onchange="applyFilters()">
+        <option value="all">All Platforms</option>
+        <option value="instagram" selected>Instagram</option>
+        <option value="facebook">Facebook</option>
+        <option value="tiktok">TikTok</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Campaign</span>
+      <select id="filterCampaign" onchange="applyFilters()">
+        <option value="all">All Campaigns</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">View</span>
+      <div class="pill-group" id="viewPills">
+        <button class="pill active" onclick="setView('latest', this)">Latest</button>
+        <button class="pill" onclick="setView(1, this)">1h</button>
+        <button class="pill" onclick="setView(4, this)">4h</button>
+        <button class="pill" onclick="setView(8, this)">8h</button>
+        <button class="pill" onclick="setView(24, this)">24h</button>
+        <button class="pill" onclick="setView(48, this)">48h</button>
+      </div>
+    </div>
+    <div class="filter-spacer"></div>
+    <div class="filter-group">
+      <span class="filter-label">Sort</span>
+      <select id="filterSort" onchange="applyFilters()">
+        <option value="score_desc">Score: High to Low</option>
+        <option value="score_asc">Score: Low to High</option>
+        <option value="reach_desc">Reach: High to Low</option>
+        <option value="impressions_desc">Impressions: High to Low</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="tbd-banner">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <span><strong>Benchmarks: TBD</strong> — Collecting data across campaigns. Scores are relative to the current ad group (0–100 scale). Boost thresholds will be refined as more data comes in.</span>
+  </div>
+
+  <div id="dashboardContent">
+    <div class="loading"><div class="spinner"></div> Loading...</div>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = 'https://kulalbfnfugauwpjukze.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt1bGFsYmZuZnVnYXV3cGp1a3plIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzM5NTQyMSwiZXhwIjoyMDg4OTcxNDIxfQ.QucqQ-nIqrkoRycB6RFjU3joknfSsn1HFJ7Sdk1mQgU';
+
+  async function sbFetch(table, q = '') {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${q}`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.message || `HTTP ${res.status}`); }
+    return res.json();
+  }
+
+  let allData = [];
+  let currentView = 'latest';
+
+  // ====== CLIENT-SIDE 0-100 SCORING ======
+  // Recalculates scores from raw metrics so old data is also correct
+  function normHigher(val, min, max) { return max === min ? 50 : ((val - min) / (max - min)) * 100; }
+  function normLower(val, min, max) { return max === min ? 50 : ((max - val) / (max - min)) * 100; }
+
+  function recalcScores(ads) {
+    // Awareness ads
+    const aw = ads.filter(d => d.campaign_type === 'awareness');
+    if (aw.length >= 2) {
+      const rMin = Math.min(...aw.map(d=>d.reach||0)), rMax = Math.max(...aw.map(d=>d.reach||0));
+      const cMin = Math.min(...aw.map(d=>d.cpm||0)), cMax = Math.max(...aw.map(d=>d.cpm||0));
+      const vMin = Math.min(...aw.map(d=>d.video_3s_view_rate||0)), vMax = Math.max(...aw.map(d=>d.video_3s_view_rate||0));
+      for (const d of aw) {
+        d._score = Math.round(
+          normHigher(d.reach||0, rMin, rMax) * 0.4 +
+          normLower(d.cpm||0, cMin, cMax) * 0.4 +
+          normHigher(d.video_3s_view_rate||0, vMin, vMax) * 0.2
+        );
+        d._boost = d._score >= 70 ? 'boost' : d._score >= 40 ? 'monitor' : 'no boost';
+      }
+    } else {
+      // Not enough ads to compare — show TBD
+      for (const d of aw) { d._score = null; d._boost = 'tbd'; }
+    }
+
+    // Engagement ads
+    const en = ads.filter(d => d.campaign_type === 'engagement');
+    if (en.length >= 2) {
+      const shMin = Math.min(...en.map(d=>d.shares||0)), shMax = Math.max(...en.map(d=>d.shares||0));
+      const svMin = Math.min(...en.map(d=>d.saves||0)), svMax = Math.max(...en.map(d=>d.saves||0));
+      const coMin = Math.min(...en.map(d=>d.comments||0)), coMax = Math.max(...en.map(d=>d.comments||0));
+      const liMin = Math.min(...en.map(d=>d.likes||0)), liMax = Math.max(...en.map(d=>d.likes||0));
+      for (const d of en) {
+        d._score = Math.round(
+          normHigher(d.shares||0, shMin, shMax) * 0.4 +
+          normHigher(d.saves||0, svMin, svMax) * 0.3 +
+          normHigher(d.comments||0, coMin, coMax) * 0.2 +
+          normHigher(d.likes||0, liMin, liMax) * 0.1
+        );
+        d._boost = d._score >= 70 ? 'boost' : d._score >= 40 ? 'monitor' : 'no boost';
+      }
+    } else {
+      for (const d of en) { d._score = null; d._boost = 'tbd'; }
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => loadData());
+
+  async function loadData() {
+    document.getElementById('dashboardContent').innerHTML = '<div class="loading"><div class="spinner"></div> Loading...</div>';
+    try {
+      allData = await sbFetch('ad_snapshots', 'select=*&order=captured_at.desc');
+      populateFilters();
+      applyFilters();
+      updateTimestamp();
+    } catch (err) {
+      document.getElementById('dashboardContent').innerHTML = `<div class="empty"><h3>Failed to load</h3><p>${err.message}</p></div>`;
+    }
+  }
+
+  function updateTimestamp() {
+    if (allData.length > 0) {
+      const d = new Date(allData[0].captured_at);
+      document.getElementById('lastUpdated').textContent =
+        `Last capture: ${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+    }
+  }
+
+  function populateFilters() {
+    const sel = document.getElementById('filterCampaign');
+    const campaigns = [...new Set(allData.map(d => d.campaign_name))];
+    sel.innerHTML = '<option value="all">All Campaigns</option>';
+    campaigns.forEach(c => {
+      const o = document.createElement('option');
+      o.value = c;
+      o.textContent = c.length > 55 ? c.substring(0, 55) + '...' : c;
+      sel.appendChild(o);
+    });
+  }
+
+  function setView(v, el) {
+    currentView = v;
+    document.querySelectorAll('#viewPills .pill').forEach(p => p.classList.remove('active'));
+    el.classList.add('active');
+    applyFilters();
+  }
+
+  function applyFilters() {
+    const platform = document.getElementById('filterPlatform').value;
+    const campaign = document.getElementById('filterCampaign').value;
+    const sort = document.getElementById('filterSort').value;
+
+    let filtered;
+
+    if (currentView === 'latest') {
+      // For "Latest": pick the most recent snapshot per ad+platform combo
+      const latestMap = new Map();
+      for (const d of allData) {
+        const key = `${d.ad_name}__${d.publisher_platform}`;
+        if (!latestMap.has(key) || new Date(d.captured_at) > new Date(latestMap.get(key).captured_at)) {
+          latestMap.set(key, d);
+        }
+      }
+      filtered = [...latestMap.values()];
+    } else {
+      filtered = allData.filter(d => d.snapshot_hours === currentView);
+    }
+
+    // Apply platform + campaign filters
+    filtered = filtered.filter(d => {
+      if (platform !== 'all' && d.publisher_platform !== platform) return false;
+      if (campaign !== 'all' && d.campaign_name !== campaign) return false;
+      return true;
+    });
+
+    // Recalculate scores client-side (0-100 normalized)
+    recalcScores(filtered);
+
+    const awareness = filtered.filter(d => d.campaign_type === 'awareness');
+    const engagement = filtered.filter(d => d.campaign_type === 'engagement');
+
+    sortAds(awareness, sort);
+    sortAds(engagement, sort);
+
+    render(awareness, engagement);
+  }
+
+  function sortAds(arr, sort) {
+    arr.sort((a, b) => {
+      const sa = a._score ?? -1;
+      const sb = b._score ?? -1;
+      switch(sort) {
+        case 'score_asc': return sa - sb;
+        case 'reach_desc': return (b.reach||0) - (a.reach||0);
+        case 'impressions_desc': return (b.impressions||0) - (a.impressions||0);
+        default: return sb - sa;
+      }
+    });
+  }
+
+  // ====== RENDER ======
+  function render(awareness, engagement) {
+    const c = document.getElementById('dashboardContent');
+    let h = '';
+
+    h += buildSection({
+      type: 'awareness', title: 'Awareness Campaigns', sub: 'Entertaining content',
+      iconClass: 'icon-awareness', icon: '\u25C9',
+      formula: [['Reach','40%'],['CPM','40%'],['3s View Rate','20%']],
+      chipClass: 'chip-blue', ads: awareness, scoreKey: 'awareness_score',
+      metrics: d => [
+        ['Reach', fmt(d.reach)], ['CPM', '$'+(d.cpm||0).toFixed(3)],
+        ['3s Views', fmt(d.video_3s_views)], ['3s View Rate', (d.video_3s_view_rate||0).toFixed(1)+'%']
+      ],
+      summaryExtras: ads => {
+        const r = ads.reduce((s,d)=>s+(d.reach||0),0);
+        const cpm = ads.reduce((s,d)=>s+(d.cpm||0),0)/ads.length;
+        return [['Total Reach', fmt(r)], ['Avg CPM', '$'+cpm.toFixed(3)]];
+      }
+    });
+
+    h += buildSection({
+      type: 'engagement', title: 'Engagement Campaigns', sub: 'Educational content',
+      iconClass: 'icon-engagement', icon: '\u2665',
+      formula: [['Shares','40%'],['Saves','30%'],['Comments','20%'],['Likes','10%']],
+      chipClass: 'chip-purple', ads: engagement, scoreKey: 'engagement_score',
+      metrics: d => [
+        ['Shares', fmt(d.shares)], ['Saves', fmt(d.saves)],
+        ['Comments', fmt(d.comments)], ['Likes', fmt(d.likes)]
+      ],
+      summaryExtras: ads => {
+        const sh = ads.reduce((s,d)=>s+(d.shares||0),0);
+        const sv = ads.reduce((s,d)=>s+(d.saves||0),0);
+        return [['Total Shares', fmt(sh)], ['Total Saves', fmt(sv)]];
+      }
+    });
+
+    c.innerHTML = h;
+  }
+
+  function buildSection({type, title, sub, iconClass, icon, formula, chipClass, ads, scoreKey, metrics, summaryExtras}) {
+    let h = `<div class="section">`;
+    const hasTBD = ads.length > 0 && ads[0]._score === null;
+
+    h += `<div class="section-header">
+      <div class="section-title">
+        <div class="section-icon ${iconClass}">${icon}</div>
+        <h2>${title}</h2>
+        <span class="section-count">${ads.length} ad${ads.length!==1?'s':''}</span>
+      </div>
+      <span style="font-size:12px; color:var(--text-3)">${sub}</span>
+    </div>`;
+
+    // Formula
+    h += `<div class="formula"><strong>Score =</strong> `;
+    formula.forEach(([label, weight], i) => {
+      if (i > 0) h += ` <span style="color:var(--text-3)">+</span> `;
+      h += `<span class="chip ${chipClass}">${label} ${weight}</span>`;
+    });
+    if (hasTBD) h += `<span style="margin-left:auto; font-size:10px; color:var(--orange)">Need 2+ ads to calculate scores</span>`;
+    h += `</div>`;
+
+    if (ads.length === 0) {
+      h += `<div class="empty"><h3>No ${type} ads found</h3><p>No data for current filters.</p></div></div>`;
+      return h;
+    }
+
+    // Summary
+    const scoredAds = ads.filter(d => d._score !== null);
+    const avgScore = scoredAds.length > 0 ? scoredAds.reduce((s,d) => s + d._score, 0) / scoredAds.length : null;
+    const boost = ads.filter(d => d._boost === 'boost').length;
+    const monitor = ads.filter(d => d._boost === 'monitor').length;
+    const noBoost = ads.filter(d => d._boost === 'no boost').length;
+    const extras = summaryExtras(ads);
+
+    h += `<div class="summary">`;
+    if (avgScore !== null) {
+      h += `<div class="summary-card"><div class="summary-label">Avg Score</div><div class="summary-value" style="color:${sColor(avgScore)}">${avgScore.toFixed(0)}<span style="font-size:12px;color:var(--text-3)">/100</span></div></div>`;
+    } else {
+      h += `<div class="summary-card"><div class="summary-label">Avg Score</div><div class="summary-value" style="color:var(--text-3)">TBD</div><div class="summary-sub">Need more ads</div></div>`;
+    }
+    h += `<div class="summary-card"><div class="summary-label">Boost</div><div class="summary-value" style="color:var(--green)">${boost}</div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">Monitor</div><div class="summary-value" style="color:var(--orange)">${monitor}</div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">No Boost</div><div class="summary-value" style="color:var(--red)">${noBoost}</div></div>`;
+    extras.forEach(([l,v]) => {
+      h += `<div class="summary-card"><div class="summary-label">${l}</div><div class="summary-value">${v}</div></div>`;
+    });
+    h += `</div>`;
+
+    // Ad cards
+    const scoredCards = ads.filter(d => d._score !== null);
+    const topScore = scoredCards.length > 0 ? Math.max(...scoredCards.map(d => d._score)) : null;
+
+    h += `<div class="ad-grid">`;
+    ads.forEach((d, i) => {
+      const score = d._score;
+      const isTBD = score === null;
+      const isWinner = !isTBD && score === topScore && ads.length > 1;
+      const m = metrics(d);
+      const boostClass = d._boost === 'boost' ? 'boost-green' : d._boost === 'monitor' ? 'boost-orange' : d._boost === 'tbd' ? '' : 'boost-red';
+      const boostLabel = d._boost === 'no boost' ? 'No Boost' : d._boost === 'tbd' ? 'TBD' : cap(d._boost);
+      const platClass = 'plat-' + (d.publisher_platform || 'unknown');
+      const platLabel = cap(d.publisher_platform || 'unknown');
+      const hasThumb = d.thumbnail_url && d.thumbnail_url.startsWith('http');
+
+      h += `<div class="ad-card ${isWinner ? 'winner' : ''}">`;
+      if (isWinner) h += `<div class="winner-crown">\u2605 Top Performer</div>`;
+
+      // Visual
+      h += `<div class="ad-visual">`;
+      if (hasThumb) {
+        h += `<img src="${esc(d.thumbnail_url)}" alt="Ad" loading="lazy">`;
+      } else {
+        h += `<div class="ad-visual-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><span>Ad creative</span></div>`;
+      }
+      h += `<span class="badge-platform ${platClass}">${platLabel}</span>`;
+      if (!isTBD) {
+        h += `<span class="badge-score" style="color:${sColor(score)}"><span>${score}</span><span class="score-label">/100</span></span>`;
+      } else {
+        h += `<span class="badge-score" style="color:var(--text-3)"><span style="font-size:14px">TBD</span></span>`;
+      }
+      h += `</div>`;
+
+      // Body
+      h += `<div class="ad-body">`;
+      h += `<div class="ad-name" title="${esc(d.ad_name)}">${esc(d.ad_name)}</div>`;
+      h += `<div class="ad-metrics">`;
+      m.forEach(([label, value]) => {
+        h += `<div class="ad-metric"><div class="ad-metric-label">${label}</div><div class="ad-metric-value">${value}</div></div>`;
+      });
+      h += `</div>`;
+
+      // Footer
+      h += `<div class="ad-footer">`;
+      if (d._boost === 'tbd') {
+        h += `<span class="bench-tbd">Score: TBD</span>`;
+      } else {
+        h += `<span class="boost-pill ${boostClass}">${boostLabel}</span>`;
+      }
+      h += `<span class="bench-tbd">Benchmark: TBD</span>`;
+      h += `</div>`;
+
+      h += `</div></div>`; // close ad-body, ad-card
+    });
+    h += `</div>`;
+
+    h += `</div>`; // close section
+    return h;
+  }
+
+  // ====== HELPERS ======
+  function fmt(n) {
+    if (n == null) return '0';
+    if (n >= 1e6) return (n/1e6).toFixed(1)+'M';
+    if (n >= 1e3) return (n/1e3).toFixed(1)+'K';
+    return n.toLocaleString();
+  }
+  function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
+  function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+  function sColor(s) {
+    if (s >= 70) return 'var(--green)';
+    if (s >= 40) return 'var(--orange)';
+    return 'var(--red)';
+  }
+</script>
+</body>
+</html>
