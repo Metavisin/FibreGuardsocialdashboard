@@ -204,7 +204,7 @@ async function fetchCampaignObjectives() {
   return objectiveMap;
 }
 
-async function fetchMetaInsights(datePreset = "maximum") {
+async function fetchMetaInsights(datePreset = "last_7d") {
   const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/insights`;
 
   const { data } = await axios.get(url, {
