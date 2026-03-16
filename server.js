@@ -905,6 +905,192 @@ app.get("/dashboard", async (req, res) => {
   }
 });
 
+// ====== REPORT GENERATION ENDPOINT ======
+
+app.post("/generate-report", async (req, res) => {
+  if (!ANTHROPIC_API_KEY) {
+    return res.status(500).json({ error: "Anthropic API key not configured" });
+  }
+
+  try {
+    const { datePreset } = req.body;
+    // Fetch fresh data from Meta for the requested date range
+    const [rows, campaignInfo, adDetails] = await Promise.all([
+      fetchMetaInsights(datePreset || "last_30d"),
+      fetchCampaignInfo(),
+      fetchAdDetails()
+    ]);
+
+    const { objectives: objectiveMap, budgets: campaignBudgets, adsetBudgets } = campaignInfo;
+    const { thumbnails: thumbnailMap, statuses: statusMap, createdTimes: createdTimeMap } = adDetails;
+
+    // Process rows into clean ad data
+    const grouped = new Map();
+    for (const item of rows) {
+      const campaign_name = item.campaign_name || "";
+      const ad_name = item.ad_name || "";
+      const publisher_platform = (item.publisher_platform || "").toLowerCase();
+      if (!publisher_platform || !["facebook", "instagram"].includes(publisher_platform)) continue;
+
+      const key = `${campaign_name}__${ad_name}__${publisher_platform}`;
+      const apiObjective = objectiveMap[campaign_name] || "";
+      const campaignType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(campaign_name, ad_name);
+      const rawStatus = statusMap[item.ad_id] || "UNKNOWN";
+      const adStatus = mapMetaStatus(rawStatus);
+      const spend = safeNumber(item.spend);
+
+      const existing = grouped.get(key) || {
+        campaign_type: campaignType, campaign_name, ad_name, ad_id: item.ad_id || null,
+        publisher_platform, ad_status: adStatus,
+        impressions: safeNumber(item.impressions), reach: safeNumber(item.reach),
+        cpm: safeNumber(item.cpm), spend, frequency: safeNumber(item.frequency),
+        video_3s_views: 0, video_3s_view_rate: 0,
+        likes: 0, comments: 0, shares: 0, saves: 0, link_clicks: 0, ctr: 0,
+        cost_per_click: 0
+      };
+
+      const parsed = parseActions(item.actions || []);
+      existing.video_3s_views += parsed.video3sViews;
+      existing.likes += parsed.likes;
+      existing.comments += parsed.comments;
+      existing.shares += parsed.shares;
+      existing.saves += parsed.saves;
+      existing.link_clicks += parsed.linkClicks;
+      existing.impressions = safeNumber(item.impressions);
+      existing.reach = safeNumber(item.reach);
+      existing.cpm = safeNumber(item.cpm);
+      existing.spend = spend;
+      grouped.set(key, existing);
+    }
+
+    const cleanRows = [...grouped.values()];
+    for (const row of cleanRows) {
+      row.video_3s_view_rate = row.impressions > 0 ? round((row.video_3s_views / row.impressions) * 100) : 0;
+      row.ctr = row.impressions > 0 ? round((row.link_clicks / row.impressions) * 100) : 0;
+      row.cost_per_click = row.link_clicks > 0 ? round(row.spend / row.link_clicks, 4) : 0;
+    }
+    computeAbsoluteScores(cleanRows);
+
+    // Separate by campaign type and status
+    const activeAds = cleanRows.filter(r => r.ad_status === 'ACTIVE');
+    const completedAds = cleanRows.filter(r => r.ad_status !== 'ACTIVE');
+    const awareness = cleanRows.filter(r => r.campaign_type === 'awareness');
+    const engagement = cleanRows.filter(r => r.campaign_type === 'engagement');
+    const traffic = cleanRows.filter(r => r.campaign_type === 'traffic');
+
+    // Build data summary for Claude
+    const totalSpend = cleanRows.reduce((s, d) => s + (d.spend || 0), 0);
+    const totalReach = cleanRows.reduce((s, d) => s + (d.reach || 0), 0);
+    const totalClicks = cleanRows.reduce((s, d) => s + (d.link_clicks || 0), 0);
+    const totalImpressions = cleanRows.reduce((s, d) => s + (d.impressions || 0), 0);
+    const avgCTR = totalImpressions > 0 ? (totalClicks / totalImpressions * 100).toFixed(2) : 0;
+    const avgCPM = cleanRows.length > 0 ? (cleanRows.reduce((s, d) => s + (d.cpm || 0), 0) / cleanRows.length).toFixed(3) : 0;
+
+    const dateLabel = {
+      'last_7d': 'Last 7 Days', 'last_14d': 'Last 14 Days', 'last_30d': 'Last 30 Days',
+      'this_month': 'This Month', 'last_month': 'Last Month', 'maximum': 'All Time'
+    }[datePreset] || datePreset;
+
+    // Build per-ad details
+    const adDetails_str = cleanRows.map(ad => {
+      const score = ad.awareness_score ?? ad.engagement_score ?? ad.traffic_score ?? 0;
+      return `- "${ad.ad_name}" (${ad.publisher_platform}, ${ad.campaign_type}, ${ad.ad_status}): Score=${score}, Reach=${ad.reach}, Impressions=${ad.impressions}, Spend=$${ad.spend.toFixed(2)}, CPM=$${ad.cpm.toFixed(3)}, CTR=${ad.ctr}%, Clicks=${ad.link_clicks}, Shares=${ad.shares}, Saves=${ad.saves}, Comments=${ad.comments}, Likes=${ad.likes}, CPC=$${ad.cost_per_click}, Frequency=${ad.frequency}`;
+    }).join('\n');
+
+    const prompt = `You are an expert social media advertising analyst for FibreGuard (stain-resistant textile brand). Generate a comprehensive performance report.
+
+DATE RANGE: ${dateLabel}
+
+OVERVIEW:
+- Total Ads: ${cleanRows.length} (${activeAds.length} active, ${completedAds.length} completed)
+- Total Spend: $${totalSpend.toFixed(2)}
+- Total Reach: ${totalReach.toLocaleString()}
+- Total Impressions: ${totalImpressions.toLocaleString()}
+- Total Link Clicks: ${totalClicks.toLocaleString()}
+- Average CTR: ${avgCTR}%
+- Average CPM: $${avgCPM}
+
+CAMPAIGN BREAKDOWN:
+- Awareness: ${awareness.length} ads, Spend: $${awareness.reduce((s,d)=>s+d.spend,0).toFixed(2)}, Reach: ${awareness.reduce((s,d)=>s+d.reach,0).toLocaleString()}
+- Engagement: ${engagement.length} ads, Spend: $${engagement.reduce((s,d)=>s+d.spend,0).toFixed(2)}, Shares: ${engagement.reduce((s,d)=>s+d.shares,0)}, Saves: ${engagement.reduce((s,d)=>s+d.saves,0)}
+- Traffic: ${traffic.length} ads, Spend: $${traffic.reduce((s,d)=>s+d.spend,0).toFixed(2)}, Clicks: ${traffic.reduce((s,d)=>s+d.link_clicks,0)}
+
+PER-AD DATA:
+${adDetails_str}
+
+Generate the report as a JSON object with this structure:
+{
+  "title": "FibreGuard Ad Performance Report",
+  "dateRange": "${dateLabel}",
+  "executiveSummary": "2-3 sentence overview of overall performance",
+  "highlights": ["highlight 1", "highlight 2", "highlight 3"],
+  "concerns": ["concern 1", "concern 2"],
+  "sections": [
+    {
+      "title": "Section title",
+      "content": "Analysis paragraph (2-4 sentences)",
+      "metrics": [{"label": "Metric Name", "value": "formatted value", "trend": "up|down|neutral"}]
+    }
+  ],
+  "topPerformers": [{"name": "ad name", "platform": "instagram|facebook", "reason": "why it's top"}],
+  "recommendations": [{"priority": "high|medium|low", "action": "what to do", "reason": "why"}],
+  "platformComparison": {
+    "summary": "1-2 sentence comparison",
+    "instagram": {"strength": "...", "weakness": "..."},
+    "facebook": {"strength": "...", "weakness": "..."}
+  }
+}
+
+Rules:
+- Be specific with numbers and percentages
+- Keep sections focused and actionable
+- Include 3-5 sections covering: Overall Performance, Awareness Analysis, Engagement Analysis, Traffic Analysis, Platform Comparison
+- Recommendations should be concrete and actionable
+- Reference specific ads by name when relevant`;
+
+    const response = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: prompt }]
+    }, {
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      }
+    });
+
+    const text = response.data.content[0].text;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const report = JSON.parse(jsonMatch[0]);
+      // Attach raw chart data for the frontend
+      report.chartData = {
+        spendByType: [
+          { label: 'Awareness', value: round(awareness.reduce((s,d)=>s+d.spend,0)) },
+          { label: 'Engagement', value: round(engagement.reduce((s,d)=>s+d.spend,0)) },
+          { label: 'Traffic', value: round(traffic.reduce((s,d)=>s+d.spend,0)) }
+        ],
+        reachByPlatform: [
+          { label: 'Instagram', value: cleanRows.filter(r=>r.publisher_platform==='instagram').reduce((s,d)=>s+d.reach,0) },
+          { label: 'Facebook', value: cleanRows.filter(r=>r.publisher_platform==='facebook').reduce((s,d)=>s+d.reach,0) }
+        ],
+        topAdsScores: cleanRows
+          .map(r => ({ name: r.ad_name.substring(0,30), score: r.awareness_score ?? r.engagement_score ?? r.traffic_score ?? 0, type: r.campaign_type, platform: r.publisher_platform }))
+          .sort((a,b) => b.score - a.score)
+          .slice(0, 8),
+        overview: { totalSpend: round(totalSpend), totalReach, totalClicks, totalImpressions, avgCTR: parseFloat(avgCTR), avgCPM: parseFloat(avgCPM), activeAds: activeAds.length, completedAds: completedAds.length }
+      };
+      res.json(report);
+    } else {
+      res.status(500).json({ error: "Could not parse report from AI response" });
+    }
+  } catch (error) {
+    console.error("Report generation failed:", error.message);
+    res.status(500).json({ error: "Report generation failed", details: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
