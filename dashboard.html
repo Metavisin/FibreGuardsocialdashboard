@@ -240,13 +240,16 @@
   .status-budget-spent { background: rgba(120,120,120,0.85); color: #fff; }
   .status-new { background: rgba(96,165,250,0.85); color: #000; }
 
-  /* Grayed-out card for budget-spent ads */
+  /* Grayed-out card for budget-spent / completed ads — hidden by default */
   .ad-card.budget-spent {
-    opacity: 0.45;
-    filter: grayscale(70%);
+    display: none;
+    opacity: 0.35;
+    filter: grayscale(80%);
     order: 999; /* push to end */
   }
-  .ad-card.budget-spent:hover { opacity: 0.7; filter: grayscale(40%); }
+  .ad-card.budget-spent:hover { opacity: 0.55; filter: grayscale(50%); }
+  /* When "show completed" toggle is on */
+  .ad-grid.show-completed .ad-card.budget-spent { display: block; }
 
   /* New/pending ad card */
   .ad-card.ad-new {
@@ -505,6 +508,9 @@
         <button class="pill" onclick="setView(24, this)">24h</button>
         <button class="pill" onclick="setView(48, this)">48h</button>
       </div>
+    </div>
+    <div class="filter-group">
+      <button class="pill" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; opacity:0.6;">Show Completed</button>
     </div>
     <div class="filter-spacer"></div>
     <div class="filter-group">
@@ -849,8 +855,6 @@
       const score = d._score || 0;
       const isWinner = score === topScore && ads.length > 1 && score > 0;
       const m = metrics(d);
-      const boostClass = d._boost === 'boost' ? 'boost-green' : d._boost === 'monitor' ? 'boost-orange' : 'boost-red';
-      const boostLabel = d._boost === 'no boost' ? 'No Boost' : cap(d._boost);
       const platClass = 'plat-' + (d.publisher_platform || 'unknown');
       const platLabel = cap(d.publisher_platform || 'unknown');
       const hasThumb = d.thumbnail_url && d.thumbnail_url.startsWith('http');
@@ -903,12 +907,8 @@
       });
       h += `</div>`;
 
-      // Sparkline
-      h += buildSparkline(d);
-
       // Footer
       h += `<div class="ad-footer">`;
-      h += `<span class="boost-pill ${boostClass}">${boostLabel}</span>`;
       h += `<span class="bench-tbd">${score} pts</span>`;
       h += `</div>`;
 
@@ -1269,6 +1269,17 @@
 
     h += `</div>`;
     return h;
+  }
+
+  // ====== TOGGLE COMPLETED ADS ======
+  let showCompleted = false;
+  function toggleCompleted(btn) {
+    showCompleted = !showCompleted;
+    btn.classList.toggle('active', showCompleted);
+    btn.style.opacity = showCompleted ? '1' : '0.6';
+    document.querySelectorAll('.ad-grid').forEach(g => {
+      g.classList.toggle('show-completed', showCompleted);
+    });
   }
 
   // ====== HELPERS ======
