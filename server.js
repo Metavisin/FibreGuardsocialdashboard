@@ -624,7 +624,7 @@ app.get("/capture", async (req, res) => {
     const { error } = await supabase.from("ad_snapshots").insert(cleanRows);
     if (error) throw error;
 
-    res.json({ inserted: cleanRows.length, data: cleanRows });
+    res.json({ ok: true, inserted: cleanRows.length });
   } catch (error) {
     res.status(500).json({
       error: "Capture failed",
@@ -871,12 +871,12 @@ app.get("/smart-capture", async (req, res) => {
       if (error) throw error;
     }
 
-    console.log(`Smart capture: ${cleanRows.length} captured, ${skippedCount} skipped (too recent), ${budgetSpentCount} skipped (budget spent)`);
+    console.log(`Smart capture: ${cleanRows.length} captured, ${skippedCount} skipped (too recent), ${budgetSpentCount} skipped (not active)`);
     res.json({
+      ok: true,
       captured: cleanRows.length,
       skipped: skippedCount,
-      budget_spent_skipped: budgetSpentCount,
-      data: cleanRows
+      not_active_skipped: budgetSpentCount
     });
   } catch (error) {
     res.status(500).json({
