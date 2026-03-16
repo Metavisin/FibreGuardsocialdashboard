@@ -43,11 +43,23 @@ function round(value, decimals = 2) {
   return Number(safeNumber(value).toFixed(decimals));
 }
 
-function detectCampaignType(campaignName = "", adName = "") {
+// Fallback keyword detection (used only when API objective is unavailable)
+function detectCampaignTypeFallback(campaignName = "", adName = "") {
   const text = `${campaignName} ${adName}`.toLowerCase();
   if (text.includes("awareness") || text.includes("entertaining")) return "awareness";
   if (text.includes("engagement") || text.includes("education") || text.includes("educational")) return "engagement";
   return "awareness";
+}
+
+// Map Meta's campaign objective to our campaign type
+function objectiveToCampaignType(objective = "") {
+  const obj = objective.toUpperCase();
+  // Meta's modern OUTCOME_ objectives
+  if (obj.includes("AWARENESS") || obj.includes("REACH") || obj.includes("VIDEO_VIEWS") || obj.includes("BRAND_AWARENESS")) return "awareness";
+  if (obj.includes("ENGAGEMENT") || obj.includes("TRAFFIC") || obj.includes("POST_ENGAGEMENT") || obj.includes("CONVERSIONS") || obj.includes("MESSAGES")) return "engagement";
+  // Legacy objectives
+  if (obj.includes("LINK_CLICKS")) return "engagement";
+  return null; // unknown — will fall back to keyword detection
 }
 
 function parseActions(actions = []) {
@@ -141,7 +153,31 @@ function computeNormalizedScores(rows) {
 
 // ====== META API FUNCTIONS ======
 
-async function fetchMetaInsights() {
+// Fetch campaign objectives from Meta — returns map of campaign_name -> objective
+async function fetchCampaignObjectives() {
+  const objectiveMap = {}; // campaign_name -> objective string
+  try {
+    const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/campaigns`;
+    const { data } = await axios.get(url, {
+      params: {
+        access_token: META_ACCESS_TOKEN,
+        fields: "name,objective,status",
+        filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] }]),
+        limit: 100
+      }
+    });
+
+    for (const campaign of (data.data || [])) {
+      objectiveMap[campaign.name] = campaign.objective || "";
+      console.log(`Campaign: "${campaign.name}" → objective: ${campaign.objective}, status: ${campaign.status}`);
+    }
+  } catch (err) {
+    console.warn("Failed to fetch campaign objectives (non-blocking):", err.message);
+  }
+  return objectiveMap;
+}
+
+async function fetchMetaInsights(datePreset = "lifetime") {
   const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/insights`;
 
   const { data } = await axios.get(url, {
@@ -151,7 +187,7 @@ async function fetchMetaInsights() {
       breakdowns: "publisher_platform",
       action_breakdowns: "action_type",
       level: "ad",
-      date_preset: "last_7d"
+      date_preset: datePreset
     }
   });
 
@@ -217,6 +253,16 @@ async function fetchAdThumbnails() {
 }
 
 // Debug endpoint to check what Meta returns for creatives
+// Debug endpoint: see campaign objectives from Meta
+app.get("/debug-campaigns", async (req, res) => {
+  try {
+    const objectiveMap = await fetchCampaignObjectives();
+    res.json(objectiveMap);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/debug-creatives", async (req, res) => {
   try {
     const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;
@@ -300,10 +346,11 @@ app.get("/capture", async (req, res) => {
   try {
     const snapshotHours = safeNumber(req.query.snapshot_hours || 1);
 
-    // Fetch insights and thumbnails in parallel
-    const [rows, thumbnailMap] = await Promise.all([
+    // Fetch insights, thumbnails, and campaign objectives in parallel
+    const [rows, thumbnailMap, objectiveMap] = await Promise.all([
       fetchMetaInsights(),
-      fetchAdThumbnails()
+      fetchAdThumbnails(),
+      fetchCampaignObjectives()
     ]);
 
     const grouped = new Map();
@@ -320,10 +367,14 @@ app.get("/capture", async (req, res) => {
 
       const key = `${campaign_name}__${ad_name}__${publisher_platform}`;
 
+      // Determine campaign type from API objective first, fallback to keyword detection
+      const apiObjective = objectiveMap[campaign_name] || "";
+      const campaignType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(campaign_name, ad_name);
+
       const existing = grouped.get(key) || {
         captured_at: new Date().toISOString(),
         snapshot_hours: snapshotHours,
-        campaign_type: detectCampaignType(campaign_name, ad_name),
+        campaign_type: campaignType,
         campaign_name,
         ad_name,
         ad_id: item.ad_id || null,
