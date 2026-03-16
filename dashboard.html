@@ -873,7 +873,7 @@
 
       const cardExtraClass = (isCompleted || isPaused || adStatus === 'ISSUES') ? 'budget-spent' : isNew ? 'ad-new' : '';
       h += `<div class="ad-card ${isWinner ? 'winner' : ''} ${cardExtraClass}">`;
-      if (isWinner && !isBudgetSpent) h += `<div class="winner-crown">\u2605 Top Performer</div>`;
+      if (isWinner && !isCompleted) h += `<div class="winner-crown">\u2605 Top Performer</div>`;
 
       // Visual
 

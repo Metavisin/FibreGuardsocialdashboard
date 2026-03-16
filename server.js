@@ -214,31 +214,84 @@ async function fetchMetaInsights(datePreset = "last_30d") {
   return data.data || [];
 }
 
-// Fetch ad creative thumbnails, ad status, and created_time from Meta — keyed by ad_id
-// Returns { thumbnails: { ad_id: url }, statuses: { ad_id: "ACTIVE"|... }, createdTimes: { ad_id: ISO string } }
+// Fetch ad creative thumbnails, ad delivery status, and created_time from Meta — keyed by ad_id
+// Returns { thumbnails: { ad_id: url }, statuses: { ad_id: "ACTIVE"|"COMPLETED"|... }, createdTimes: { ad_id: ISO string } }
 async function fetchAdDetails() {
   const thumbnails = {};    // ad_id -> thumbnail_url
-  const statuses = {};      // ad_id -> effective_status
+  const statuses = {};      // ad_id -> computed delivery status
   const createdTimes = {};  // ad_id -> created_time ISO string
   try {
-    // Step 1: Get ads with their creative IDs, effective status, and created_time
+    // Step 1: Get ads with campaign + adset details to determine true delivery status
     const adsUrl = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;
     const { data: adsData } = await axios.get(adsUrl, {
       params: {
         access_token: META_ACCESS_TOKEN,
-        fields: "id,name,effective_status,created_time,creative{id}",
-        limit: 100
+        fields: "id,name,effective_status,configured_status,created_time,creative{id},campaign{id,effective_status,budget_remaining,lifetime_budget,daily_budget,stop_time,start_time},adset{id,effective_status,budget_remaining,lifetime_budget,daily_budget,end_time,start_time}",
+        limit: 200
       }
     });
 
     const ads = adsData.data || [];
     console.log(`Found ${ads.length} ads from Meta`);
 
-    // Build creative_id -> [ad_ids] mapping and collect statuses + created times
+    // Build creative_id -> [ad_ids] mapping and compute delivery status
     const creativeToAds = {};
+    const now = new Date();
+
     for (const ad of ads) {
-      statuses[ad.id] = ad.effective_status || "UNKNOWN";
       createdTimes[ad.id] = ad.created_time || null;
+
+      // Compute the real delivery status like Ads Manager does
+      const adEffective = ad.effective_status || "UNKNOWN";
+      const campaignEffective = ad.campaign?.effective_status || "UNKNOWN";
+      const adsetEffective = ad.adset?.effective_status || "UNKNOWN";
+
+      // Campaign/adset budget and schedule info
+      const campaignBudgetRemaining = parseFloat(ad.campaign?.budget_remaining || "-1");
+      const adsetBudgetRemaining = parseFloat(ad.adset?.budget_remaining || "-1");
+      const campaignLifetime = parseFloat(ad.campaign?.lifetime_budget || "0");
+      const adsetLifetime = parseFloat(ad.adset?.lifetime_budget || "0");
+      const campaignStopTime = ad.campaign?.stop_time ? new Date(ad.campaign.stop_time) : null;
+      const adsetEndTime = ad.adset?.end_time ? new Date(ad.adset.end_time) : null;
+
+      let deliveryStatus;
+
+      // If the ad itself is not active, use that status
+      if (adEffective !== "ACTIVE") {
+        deliveryStatus = adEffective; // PAUSED, DELETED, ARCHIVED, etc.
+      }
+      // Campaign is paused/off
+      else if (campaignEffective !== "ACTIVE") {
+        deliveryStatus = "CAMPAIGN_PAUSED";
+      }
+      // Adset is paused/off
+      else if (adsetEffective !== "ACTIVE") {
+        deliveryStatus = "ADSET_PAUSED";
+      }
+      // Campaign has a lifetime budget and it's been fully spent (remaining = 0)
+      else if (campaignLifetime > 0 && campaignBudgetRemaining === 0) {
+        deliveryStatus = "COMPLETED";
+      }
+      // Adset has a lifetime budget and it's been fully spent
+      else if (adsetLifetime > 0 && adsetBudgetRemaining === 0) {
+        deliveryStatus = "COMPLETED";
+      }
+      // Campaign has a stop time that has passed
+      else if (campaignStopTime && campaignStopTime < now) {
+        deliveryStatus = "COMPLETED";
+      }
+      // Adset has an end time that has passed
+      else if (adsetEndTime && adsetEndTime < now) {
+        deliveryStatus = "COMPLETED";
+      }
+      // Everything checks out — truly active
+      else {
+        deliveryStatus = "ACTIVE";
+      }
+
+      statuses[ad.id] = deliveryStatus;
+      console.log(`Ad ${ad.id} (${ad.name?.substring(0,30)}): effective=${adEffective}, campaign=${campaignEffective}, adset=${adsetEffective}, budgetRemain=${campaignBudgetRemaining}/${adsetBudgetRemaining}, delivery=${deliveryStatus}`);
+
       const cid = ad.creative?.id;
       if (cid) {
         if (!creativeToAds[cid]) creativeToAds[cid] = [];
@@ -268,7 +321,13 @@ async function fetchAdDetails() {
       }
     }
 
-    console.log(`Mapped ${Object.keys(thumbnails).length} thumbnails, ${Object.keys(statuses).length} statuses, ${Object.keys(createdTimes).length} created times`);
+    console.log(`Mapped ${Object.keys(thumbnails).length} thumbnails, ${Object.keys(statuses).length} statuses`);
+    // Log delivery status summary
+    const statusCounts = {};
+    for (const s of Object.values(statuses)) {
+      statusCounts[s] = (statusCounts[s] || 0) + 1;
+    }
+    console.log("Delivery status summary:", JSON.stringify(statusCounts));
   } catch (err) {
     console.warn("Could not fetch ad details:", err.message);
   }
@@ -297,56 +356,6 @@ app.get("/debug-creatives", async (req, res) => {
       }
     });
     res.json(data.data || []);
-  } catch (err) {
-    res.status(500).json({ error: err.message, details: err.response?.data });
-  }
-});
-
-// Debug: show raw effective_status + campaign status for every ad
-app.get("/debug-statuses", async (req, res) => {
-  try {
-    // Get all ads with their effective_status and configured_status
-    const adsUrl = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;
-    const { data: adsData } = await axios.get(adsUrl, {
-      params: {
-        access_token: META_ACCESS_TOKEN,
-        fields: "id,name,effective_status,configured_status,created_time,campaign{id,name,effective_status,configured_status,daily_budget,lifetime_budget,budget_remaining,stop_time},adset{id,name,effective_status,configured_status,daily_budget,lifetime_budget,budget_remaining,end_time}",
-        limit: 200
-      }
-    });
-    const ads = adsData.data || [];
-
-    // Summarize statuses
-    const statusCounts = {};
-    const results = ads.map(ad => {
-      const s = ad.effective_status || "UNKNOWN";
-      statusCounts[s] = (statusCounts[s] || 0) + 1;
-      return {
-        ad_id: ad.id,
-        ad_name: ad.name,
-        ad_effective_status: ad.effective_status,
-        ad_configured_status: ad.configured_status,
-        campaign_name: ad.campaign?.name,
-        campaign_effective_status: ad.campaign?.effective_status,
-        campaign_configured_status: ad.campaign?.configured_status,
-        campaign_daily_budget: ad.campaign?.daily_budget,
-        campaign_lifetime_budget: ad.campaign?.lifetime_budget,
-        campaign_budget_remaining: ad.campaign?.budget_remaining,
-        campaign_stop_time: ad.campaign?.stop_time,
-        adset_effective_status: ad.adset?.effective_status,
-        adset_configured_status: ad.adset?.configured_status,
-        adset_daily_budget: ad.adset?.daily_budget,
-        adset_lifetime_budget: ad.adset?.lifetime_budget,
-        adset_budget_remaining: ad.adset?.budget_remaining,
-        adset_end_time: ad.adset?.end_time,
-      };
-    });
-
-    res.json({
-      total_ads: ads.length,
-      status_summary: statusCounts,
-      ads: results
-    });
   } catch (err) {
     res.status(500).json({ error: err.message, details: err.response?.data });
   }
@@ -427,28 +436,24 @@ Rules:
 // totalCampaignSpend = sum of spend across ALL platforms for this campaign_id
 // adCreatedTime = when the ad was created (ISO string)
 
-// Map Meta's effective_status directly — no budget guessing
-function mapMetaStatus(effectiveStatus) {
-  switch (effectiveStatus) {
+// Map the computed delivery status to dashboard status
+function mapMetaStatus(deliveryStatus) {
+  switch (deliveryStatus) {
     case "ACTIVE":
       return "ACTIVE";
     case "PAUSED":
     case "CAMPAIGN_PAUSED":
     case "ADSET_PAUSED":
       return "PAUSED";
-    case "DELETED":
-    case "ARCHIVED":
+    case "COMPLETED":
       return "COMPLETED";
     case "PENDING_REVIEW":
     case "PREAPPROVED":
     case "PENDING_BILLING_INFO":
     case "IN_PROCESS":
       return "PENDING";
-    case "DISAPPROVED":
-    case "WITH_ISSUES":
-      return "ISSUES";
     default:
-      return "COMPLETED"; // Anything else (unknown) treat as not active
+      return "COMPLETED"; // DELETED, ARCHIVED, DISAPPROVED, UNKNOWN → all completed/inactive
   }
 }
 
