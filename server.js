@@ -693,7 +693,7 @@ app.get("/smart-capture", async (req, res) => {
 
       const existing = grouped.get(key) || {
         captured_at: now.toISOString(),
-        snapshot_hours: round(adAgeHours, 1),
+        snapshot_hours: Math.round(adAgeHours),
         campaign_type: campaignType,
         campaign_name,
         campaign_id: item.campaign_id || null,
