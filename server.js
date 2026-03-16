@@ -377,49 +377,29 @@ Rules:
 // totalCampaignSpend = sum of spend across ALL platforms for this campaign_id
 // adCreatedTime = when the ad was created (ISO string)
 
-function determineBudgetStatus(adStatus, totalCampaignSpend, campaignId, adsetName, campaignBudgets, adsetBudgets, adCreatedTime) {
-  // First: trust Meta's effective_status for non-active ads
-  // These statuses mean the ad is definitively NOT delivering
-  const inactiveStatuses = [
-    "PAUSED", "DELETED", "ARCHIVED", "DISAPPROVED",
-    "CAMPAIGN_PAUSED", "ADSET_PAUSED", "PENDING_REVIEW",
-    "PREAPPROVED", "PENDING_BILLING_INFO", "WITH_ISSUES"
-  ];
-  if (inactiveStatuses.includes(adStatus)) {
-    return adStatus; // Return the actual Meta status
+// Map Meta's effective_status directly — no budget guessing
+function mapMetaStatus(effectiveStatus) {
+  switch (effectiveStatus) {
+    case "ACTIVE":
+      return "ACTIVE";
+    case "PAUSED":
+    case "CAMPAIGN_PAUSED":
+    case "ADSET_PAUSED":
+      return "PAUSED";
+    case "DELETED":
+    case "ARCHIVED":
+      return "COMPLETED";
+    case "PENDING_REVIEW":
+    case "PREAPPROVED":
+    case "PENDING_BILLING_INFO":
+    case "IN_PROCESS":
+      return "PENDING";
+    case "DISAPPROVED":
+    case "WITH_ISSUES":
+      return "ISSUES";
+    default:
+      return "COMPLETED"; // Anything else (unknown) treat as not active
   }
-
-  const adsetBudget = adsetBudgets[adsetName];
-  const campaignBudget = campaignBudgets[campaignId];
-
-  // Check lifetime budget first
-  const lifetimeBudget = (adsetBudget?.lifetime_budget || 0) || (campaignBudget?.lifetime_budget || 0);
-  if (lifetimeBudget > 0 && totalCampaignSpend >= lifetimeBudget * 0.95) {
-    return "BUDGET_SPENT";
-  }
-
-  // Check daily budget — detect "effectively done" ads
-  const dailyBudget = (adsetBudget?.daily_budget || 0) || (campaignBudget?.daily_budget || 0);
-  if (dailyBudget > 0 && adCreatedTime) {
-    const adAgeMs = Date.now() - new Date(adCreatedTime).getTime();
-    const adAgeDays = adAgeMs / (1000 * 60 * 60 * 24);
-
-    // Only check ads that have been running for 5+ days
-    if (adAgeDays >= 5) {
-      // What the campaign COULD have spent if fully active every day
-      const potentialSpend = dailyBudget * adAgeDays;
-      // Spend ratio: what fraction of potential was actually used
-      const spendRatio = totalCampaignSpend / potentialSpend;
-
-      // If the ad used less than 15% of its potential daily budget over time,
-      // it means Meta stopped delivering it — effectively done
-      if (spendRatio < 0.15) {
-        return "BUDGET_SPENT";
-      }
-    }
-  }
-
-  return adStatus;
 }
 
 // ====== PROCESS INSIGHTS ROWS ======
@@ -453,9 +433,8 @@ function processInsightRows(rows, { objectiveMap, statusMap, createdTimeMap, thu
 
     const rawStatus = statusMap[item.ad_id] || "UNKNOWN";
     const spend = safeNumber(item.spend);
-    const totalCampaignSpend = campaignSpendTotals[item.campaign_id] || spend;
     const adCreatedTime = createdTimeMap[item.ad_id] || null;
-    const adStatus = determineBudgetStatus(rawStatus, totalCampaignSpend, item.campaign_id, item.adset_name, campaignBudgets, adsetBudgets, adCreatedTime);
+    const adStatus = mapMetaStatus(rawStatus);
 
     let costPerClick = 0;
     for (const cpa of (item.cost_per_action_type || [])) {
@@ -743,12 +722,9 @@ app.get("/smart-capture", async (req, res) => {
       const totalCampaignSpend = campaignSpendTotals[item.campaign_id] || spend;
       const adCreatedTime = createdTimeMap[adId] || null;
 
-      // Check if budget is spent — skip capturing dead ads
-      const budgetStatus = determineBudgetStatus(
-        statusMap[adId] || "UNKNOWN", totalCampaignSpend, item.campaign_id, item.adset_name,
-        campaignBudgets, adsetBudgets, adCreatedTime
-      );
-      if (budgetStatus === "BUDGET_SPENT") {
+      // Check Meta's effective_status — skip non-active ads
+      const metaStatus = mapMetaStatus(statusMap[adId] || "UNKNOWN");
+      if (metaStatus !== "ACTIVE") {
         budgetSpentCount++;
         continue;
       }
@@ -789,7 +765,7 @@ app.get("/smart-capture", async (req, res) => {
         ad_name,
         ad_id: adId,
         publisher_platform,
-        ad_status: budgetStatus,
+        ad_status: metaStatus,
         ad_created_time: createdTimeMap[adId] || null,
         date_start: item.date_start || null,
         date_stop: item.date_stop || null,

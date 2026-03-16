@@ -717,10 +717,8 @@
   function sortAds(arr, sort) {
     arr.sort((a, b) => {
       // Budget-spent ads always go last, NEW ads go first
-      const completedSet = ['BUDGET_SPENT','DELETED','ARCHIVED','DISAPPROVED'];
-      const pausedSet = ['PAUSED','CAMPAIGN_PAUSED','ADSET_PAUSED'];
-      const aPriority = completedSet.includes(a.ad_status) ? 3 : pausedSet.includes(a.ad_status) ? 2 : a.ad_status === 'NEW' ? 0 : 1;
-      const bPriority = completedSet.includes(b.ad_status) ? 3 : pausedSet.includes(b.ad_status) ? 2 : b.ad_status === 'NEW' ? 0 : 1;
+      const aPriority = a.ad_status === 'COMPLETED' ? 3 : a.ad_status === 'PAUSED' ? 2 : a.ad_status === 'NEW' ? 0 : 1;
+      const bPriority = b.ad_status === 'COMPLETED' ? 3 : b.ad_status === 'PAUSED' ? 2 : b.ad_status === 'NEW' ? 0 : 1;
       if (aPriority !== bPriority) return aPriority - bPriority;
 
       const sa = a._score ?? -1;
@@ -801,9 +799,8 @@
 
     // Count live vs completed vs new ads
     const liveCount = ads.filter(d => d.ad_status === 'ACTIVE').length;
-    const completedStatuses = ['BUDGET_SPENT','DELETED','ARCHIVED','DISAPPROVED'];
-    const budgetSpentCount = ads.filter(d => completedStatuses.includes(d.ad_status)).length;
-    const pausedCount = ads.filter(d => ['PAUSED','CAMPAIGN_PAUSED','ADSET_PAUSED'].includes(d.ad_status)).length;
+    const budgetSpentCount = ads.filter(d => d.ad_status === 'COMPLETED').length;
+    const pausedCount = ads.filter(d => d.ad_status === 'PAUSED').length;
     const newCount = ads.filter(d => d.ad_status === 'NEW').length;
 
     let countParts = [];
@@ -864,17 +861,17 @@
       const platLabel = cap(d.publisher_platform || 'unknown');
       const hasThumb = d.thumbnail_url && d.thumbnail_url.startsWith('http');
 
-      // Determine ad status
+      // Determine ad status — uses Meta's effective_status directly
       const adStatus = d.ad_status || 'UNKNOWN';
-      const isBudgetSpent = adStatus === 'BUDGET_SPENT';
-      const isNew = adStatus === 'NEW';
       const isLive = adStatus === 'ACTIVE';
-      const isPaused = ['PAUSED','CAMPAIGN_PAUSED','ADSET_PAUSED'].includes(adStatus);
-      const isCompleted = isBudgetSpent || ['DELETED','ARCHIVED','DISAPPROVED'].includes(adStatus);
-      const statusClass = isCompleted ? 'status-budget-spent' : isNew ? 'status-new' : isLive ? 'status-live' : isPaused ? 'status-paused' : 'status-ended';
-      const statusLabel = isBudgetSpent ? 'Completed' : adStatus === 'DELETED' ? 'Deleted' : adStatus === 'ARCHIVED' ? 'Archived' : adStatus === 'DISAPPROVED' ? 'Disapproved' : isNew ? 'New' : isLive ? 'Live' : isPaused ? 'Paused' : adStatus === 'PENDING_REVIEW' ? 'In Review' : adStatus === 'WITH_ISSUES' ? 'Issues' : 'Ended';
+      const isPaused = adStatus === 'PAUSED';
+      const isCompleted = adStatus === 'COMPLETED';
+      const isPending = adStatus === 'PENDING';
+      const isNew = adStatus === 'NEW';
+      const statusClass = isCompleted ? 'status-budget-spent' : isNew ? 'status-new' : isLive ? 'status-live' : isPaused ? 'status-paused' : isPending ? 'status-new' : 'status-ended';
+      const statusLabel = isCompleted ? 'Completed' : isNew ? 'New' : isLive ? 'Live' : isPaused ? 'Paused' : isPending ? 'Pending' : adStatus === 'ISSUES' ? 'Issues' : 'Ended';
 
-      const cardExtraClass = isCompleted ? 'budget-spent' : isNew ? 'ad-new' : '';
+      const cardExtraClass = (isCompleted || isPaused || adStatus === 'ISSUES') ? 'budget-spent' : isNew ? 'ad-new' : '';
       h += `<div class="ad-card ${isWinner ? 'winner' : ''} ${cardExtraClass}">`;
       if (isWinner && !isBudgetSpent) h += `<div class="winner-crown">\u2605 Top Performer</div>`;
 
