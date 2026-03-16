@@ -130,6 +130,7 @@
   }
   .icon-awareness { background: var(--blue-10); color: var(--blue); }
   .icon-engagement { background: var(--purple-10); color: var(--purple); }
+  .icon-traffic { background: var(--green-10); color: var(--green); }
   .section-count {
     font-size: 11px; color: var(--text-3); background: var(--bg-2);
     padding: 3px 8px; border-radius: 10px; border: 1px solid var(--border);
@@ -149,6 +150,7 @@
   }
   .chip-blue { background: var(--blue-10); color: var(--blue); }
   .chip-purple { background: var(--purple-10); color: var(--purple); }
+  .chip-green { background: var(--green-10); color: var(--green); }
 
   /* SUMMARY */
   .summary {
@@ -558,6 +560,26 @@
     } else {
       for (const d of en) { d._score = null; d._boost = 'tbd'; }
     }
+
+    // Traffic ads: CTR 40% + Link Clicks 30% + CPM (lower=better) 20% + Reach 10%
+    const tr = ads.filter(d => d.campaign_type === 'traffic');
+    if (tr.length >= 2) {
+      const ctrMin = Math.min(...tr.map(d=>d.ctr||0)), ctrMax = Math.max(...tr.map(d=>d.ctr||0));
+      const clMin = Math.min(...tr.map(d=>d.link_clicks||0)), clMax = Math.max(...tr.map(d=>d.link_clicks||0));
+      const cpmMin = Math.min(...tr.map(d=>d.cpm||0)), cpmMax = Math.max(...tr.map(d=>d.cpm||0));
+      const rMin = Math.min(...tr.map(d=>d.reach||0)), rMax = Math.max(...tr.map(d=>d.reach||0));
+      for (const d of tr) {
+        d._score = Math.round(
+          normHigher(d.ctr||0, ctrMin, ctrMax) * 0.4 +
+          normHigher(d.link_clicks||0, clMin, clMax) * 0.3 +
+          normLower(d.cpm||0, cpmMin, cpmMax) * 0.2 +
+          normHigher(d.reach||0, rMin, rMax) * 0.1
+        );
+        d._boost = d._score >= 70 ? 'boost' : d._score >= 40 ? 'monitor' : 'no boost';
+      }
+    } else if (tr.length === 1) {
+      for (const d of tr) { d._score = null; d._boost = 'tbd'; }
+    }
   }
 
   document.addEventListener('DOMContentLoaded', () => loadData());
@@ -652,11 +674,13 @@
 
     const awareness = filtered.filter(d => d.campaign_type === 'awareness');
     const engagement = filtered.filter(d => d.campaign_type === 'engagement');
+    const traffic = filtered.filter(d => d.campaign_type === 'traffic');
 
     sortAds(awareness, sort);
     sortAds(engagement, sort);
+    sortAds(traffic, sort);
 
-    render(awareness, engagement);
+    render(awareness, engagement, traffic);
   }
 
   function sortAds(arr, sort) {
@@ -673,7 +697,7 @@
   }
 
   // ====== RENDER ======
-  function render(awareness, engagement) {
+  function render(awareness, engagement, traffic) {
     const c = document.getElementById('dashboardContent');
     let h = '';
 
@@ -706,6 +730,22 @@
         const sh = ads.reduce((s,d)=>s+(d.shares||0),0);
         const sv = ads.reduce((s,d)=>s+(d.saves||0),0);
         return [['Total Shares', fmt(sh)], ['Total Saves', fmt(sv)]];
+      }
+    });
+
+    h += buildSection({
+      type: 'traffic', title: 'Traffic Campaigns', sub: 'Link click driven',
+      iconClass: 'icon-traffic', icon: '\u2197',
+      formula: [['CTR','40%'],['Clicks','30%'],['CPM','20%'],['Reach','10%']],
+      chipClass: 'chip-green', ads: traffic, scoreKey: 'traffic_score',
+      metrics: d => [
+        ['Link Clicks', fmt(d.link_clicks)], ['CTR', (d.ctr||0).toFixed(2)+'%'],
+        ['Reach', fmt(d.reach)], ['CPM', '$'+(d.cpm||0).toFixed(3)]
+      ],
+      summaryExtras: ads => {
+        const clicks = ads.reduce((s,d)=>s+(d.link_clicks||0),0);
+        const avgCtr = ads.reduce((s,d)=>s+(d.ctr||0),0)/ads.length;
+        return [['Total Clicks', fmt(clicks)], ['Avg CTR', avgCtr.toFixed(2)+'%']];
       }
     });
 
@@ -892,9 +932,10 @@
       // Table
       h += `<table class="compare-table">`;
 
+      const isTraffic = items[0].campaign_type === 'traffic';
+
       if (isAwareness) {
         h += `<tr><th>Platform</th><th>Reach</th><th>CPM</th><th>3s View Rate</th><th>Impressions</th><th>Score</th></tr>`;
-        // Find best values
         const bestReach = Math.max(...items.map(d => d.reach || 0));
         const bestCpm = Math.min(...items.filter(d => d.cpm > 0).map(d => d.cpm));
         const bestVr = Math.max(...items.map(d => d.video_3s_view_rate || 0));
@@ -908,6 +949,23 @@
           h += `<td>${(d.video_3s_view_rate||0).toFixed(1)}%${d.video_3s_view_rate === bestVr && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>${fmt(d.impressions)}</td>`;
           h += `<td style="color:${d.awareness_score ? sColor(d.awareness_score) : 'var(--text-3)'}">${d.awareness_score ?? 'N/A'}</td>`;
+          h += `</tr>`;
+        }
+      } else if (isTraffic) {
+        h += `<tr><th>Platform</th><th>Link Clicks</th><th>CTR</th><th>CPM</th><th>Reach</th><th>Score</th></tr>`;
+        const bestClicks = Math.max(...items.map(d => d.link_clicks || 0));
+        const bestCtr = Math.max(...items.map(d => d.ctr || 0));
+        const bestCpm = Math.min(...items.filter(d => d.cpm > 0).map(d => d.cpm));
+
+        for (const d of items.sort((a,b) => (b.link_clicks||0) - (a.link_clicks||0))) {
+          const platDot = 'dot-' + (d.publisher_platform || 'unknown');
+          h += `<tr>`;
+          h += `<td><div class="compare-plat-cell"><span class="compare-plat-dot ${platDot}"></span>${cap(d.publisher_platform || 'unknown')}</div></td>`;
+          h += `<td>${fmt(d.link_clicks)}${d.link_clicks === bestClicks && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>${(d.ctr||0).toFixed(2)}%${d.ctr === bestCtr && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>$${(d.cpm||0).toFixed(3)}${d.cpm === bestCpm && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>${fmt(d.reach)}</td>`;
+          h += `<td style="color:${d.traffic_score ? sColor(d.traffic_score) : 'var(--text-3)'}">${d.traffic_score ?? 'N/A'}</td>`;
           h += `</tr>`;
         }
       } else {
@@ -932,8 +990,8 @@
 
       // Show AI insight from the best-performing platform
       const bestItem = items.reduce((a, b) => {
-        const sa = a.awareness_score ?? a.engagement_score ?? 0;
-        const sb = b.awareness_score ?? b.engagement_score ?? 0;
+        const sa = a.awareness_score ?? a.engagement_score ?? a.traffic_score ?? 0;
+        const sb = b.awareness_score ?? b.engagement_score ?? b.traffic_score ?? 0;
         return sb > sa ? b : a;
       });
       if (bestItem.ai_insight) {
@@ -956,129 +1014,117 @@
 
     h += `</div>`; // close section
 
-    // ====== CAMPAIGN TYPE COMPARISON: Awareness vs Engagement ======
+    // ====== CAMPAIGN TYPE COMPARISON ======
     const awarenessAds = ads.filter(d => d.campaign_type === 'awareness');
     const engagementAds = ads.filter(d => d.campaign_type === 'engagement');
+    const trafficAds = ads.filter(d => d.campaign_type === 'traffic');
 
-    if (awarenessAds.length > 0 && engagementAds.length > 0) {
-      const aggAwareness = {
-        count: awarenessAds.length,
-        avgScore: Math.round(awarenessAds.reduce((s, d) => s + (d.awareness_score || 0), 0) / awarenessAds.length),
-        totalReach: awarenessAds.reduce((s, d) => s + (d.reach || 0), 0),
-        avgCpm: +(awarenessAds.reduce((s, d) => s + (d.cpm || 0), 0) / awarenessAds.length).toFixed(3),
-        totalImpressions: awarenessAds.reduce((s, d) => s + (d.impressions || 0), 0),
-        avgViewRate: +(awarenessAds.reduce((s, d) => s + (d.video_3s_view_rate || 0), 0) / awarenessAds.length).toFixed(1),
-        boostReady: awarenessAds.filter(d => (d.awareness_score || 0) >= 70).length
-      };
-      const aggEngagement = {
-        count: engagementAds.length,
-        avgScore: Math.round(engagementAds.reduce((s, d) => s + (d.engagement_score || 0), 0) / engagementAds.length),
-        totalShares: engagementAds.reduce((s, d) => s + (d.shares || 0), 0),
-        totalSaves: engagementAds.reduce((s, d) => s + (d.saves || 0), 0),
-        totalComments: engagementAds.reduce((s, d) => s + (d.comments || 0), 0),
-        totalLikes: engagementAds.reduce((s, d) => s + (d.likes || 0), 0),
-        totalImpressions: engagementAds.reduce((s, d) => s + (d.impressions || 0), 0),
-        boostReady: engagementAds.filter(d => (d.engagement_score || 0) >= 70).length
-      };
+    // Build campaign type cards dynamically
+    const typeCards = [];
+    if (awarenessAds.length > 0) {
+      const a = awarenessAds;
+      typeCards.push({
+        label: 'Awareness', icon: '\u{1F4E3}', iconClass: 'icon-awareness', color: 'var(--blue)',
+        count: a.length,
+        boostReady: a.filter(d => (d.awareness_score || 0) >= 70).length,
+        avgScore: Math.round(a.reduce((s,d) => s+(d.awareness_score||0),0)/a.length),
+        totalImpressions: a.reduce((s,d) => s+(d.impressions||0),0),
+        stats: [
+          ['Total Reach', fmt(a.reduce((s,d)=>s+(d.reach||0),0)), true],
+          ['Avg CPM', '$'+(a.reduce((s,d)=>s+(d.cpm||0),0)/a.length).toFixed(3), false],
+          ['Avg View Rate', (a.reduce((s,d)=>s+(d.video_3s_view_rate||0),0)/a.length).toFixed(1)+'%', false]
+        ]
+      });
+    }
+    if (engagementAds.length > 0) {
+      const e = engagementAds;
+      typeCards.push({
+        label: 'Engagement', icon: '\u{1F4AC}', iconClass: 'icon-engagement', color: 'var(--purple)',
+        count: e.length,
+        boostReady: e.filter(d => (d.engagement_score || 0) >= 70).length,
+        avgScore: Math.round(e.reduce((s,d) => s+(d.engagement_score||0),0)/e.length),
+        totalImpressions: e.reduce((s,d) => s+(d.impressions||0),0),
+        stats: [
+          ['Shares+Saves', fmt(e.reduce((s,d)=>s+(d.shares||0)+(d.saves||0),0)), true],
+          ['Comments', fmt(e.reduce((s,d)=>s+(d.comments||0),0)), false],
+          ['Likes', fmt(e.reduce((s,d)=>s+(d.likes||0),0)), false]
+        ]
+      });
+    }
+    if (trafficAds.length > 0) {
+      const t = trafficAds;
+      typeCards.push({
+        label: 'Traffic', icon: '\u{1F517}', iconClass: 'icon-traffic', color: 'var(--green)',
+        count: t.length,
+        boostReady: t.filter(d => (d.traffic_score || 0) >= 70).length,
+        avgScore: Math.round(t.reduce((s,d) => s+(d.traffic_score||0),0)/t.length),
+        totalImpressions: t.reduce((s,d) => s+(d.impressions||0),0),
+        stats: [
+          ['Total Clicks', fmt(t.reduce((s,d)=>s+(d.link_clicks||0),0)), true],
+          ['Avg CTR', (t.reduce((s,d)=>s+(d.ctr||0),0)/t.length).toFixed(2)+'%', false],
+          ['Avg CPM', '$'+(t.reduce((s,d)=>s+(d.cpm||0),0)/t.length).toFixed(3), false]
+        ]
+      });
+    }
 
+    if (typeCards.length >= 2) {
+      const cols = typeCards.length === 3 ? '1fr 1fr 1fr' : '1fr 1fr';
       h += `<div class="section" style="margin-top:24px">
         <div class="section-header">
           <div class="section-title">
-            <div class="section-icon" style="background:var(--purple-10); color:var(--purple)">⚡</div>
-            <h2>Awareness vs Engagement</h2>
+            <div class="section-icon" style="background:var(--purple-10); color:var(--purple)">\u26A1</div>
+            <h2>Campaign Type Comparison</h2>
           </div>
-          <span style="font-size:12px; color:var(--text-3)">Campaign type performance overview</span>
+          <span style="font-size:12px; color:var(--text-3)">Performance across campaign objectives</span>
         </div>
         <div class="compare-group">
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+          <div style="display:grid; grid-template-columns:${cols}; gap:16px;">`;
 
-            <!-- Awareness summary -->
-            <div style="background:var(--bg-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:18px;">
-              <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
-                <div class="section-icon icon-awareness" style="width:28px; height:28px; font-size:13px;">📣</div>
-                <div>
-                  <div style="font-weight:600; color:var(--text-1);">Awareness</div>
-                  <div style="font-size:11px; color:var(--text-3)">${aggAwareness.count} ad${aggAwareness.count!==1?'s':''} • ${aggAwareness.boostReady} boost-ready</div>
-                </div>
-              </div>
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                <div class="compare-stat">
-                  <div style="font-size:11px; color:var(--text-3)">Avg Score</div>
-                  <div style="font-size:20px; font-weight:700; color:${sColor(aggAwareness.avgScore)}">${aggAwareness.avgScore}</div>
-                </div>
-                <div class="compare-stat">
-                  <div style="font-size:11px; color:var(--text-3)">Total Reach</div>
-                  <div style="font-size:20px; font-weight:700; color:var(--text-1)">${fmt(aggAwareness.totalReach)}</div>
-                </div>
-                <div class="compare-stat">
-                  <div style="font-size:11px; color:var(--text-3)">Avg CPM</div>
-                  <div style="font-size:16px; font-weight:600; color:var(--text-1)">$${aggAwareness.avgCpm}</div>
-                </div>
-                <div class="compare-stat">
-                  <div style="font-size:11px; color:var(--text-3)">Avg View Rate</div>
-                  <div style="font-size:16px; font-weight:600; color:var(--text-1)">${aggAwareness.avgViewRate}%</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Engagement summary -->
-            <div style="background:var(--bg-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:18px;">
-              <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
-                <div class="section-icon icon-engagement" style="width:28px; height:28px; font-size:13px;">💬</div>
-                <div>
-                  <div style="font-weight:600; color:var(--text-1);">Engagement</div>
-                  <div style="font-size:11px; color:var(--text-3)">${aggEngagement.count} ad${aggEngagement.count!==1?'s':''} • ${aggEngagement.boostReady} boost-ready</div>
-                </div>
-              </div>
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                <div class="compare-stat">
-                  <div style="font-size:11px; color:var(--text-3)">Avg Score</div>
-                  <div style="font-size:20px; font-weight:700; color:${sColor(aggEngagement.avgScore)}">${aggEngagement.avgScore}</div>
-                </div>
-                <div class="compare-stat">
-                  <div style="font-size:11px; color:var(--text-3)">Shares + Saves</div>
-                  <div style="font-size:20px; font-weight:700; color:var(--text-1)">${fmt(aggEngagement.totalShares + aggEngagement.totalSaves)}</div>
-                </div>
-                <div class="compare-stat">
-                  <div style="font-size:11px; color:var(--text-3)">Comments</div>
-                  <div style="font-size:16px; font-weight:600; color:var(--text-1)">${fmt(aggEngagement.totalComments)}</div>
-                </div>
-                <div class="compare-stat">
-                  <div style="font-size:11px; color:var(--text-3)">Likes</div>
-                  <div style="font-size:16px; font-weight:600; color:var(--text-1)">${fmt(aggEngagement.totalLikes)}</div>
-                </div>
-              </div>
+      for (const tc of typeCards) {
+        h += `<div style="background:var(--bg-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:18px;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
+            <div class="section-icon ${tc.iconClass}" style="width:28px; height:28px; font-size:13px;">${tc.icon}</div>
+            <div>
+              <div style="font-weight:600; color:var(--text-1);">${tc.label}</div>
+              <div style="font-size:11px; color:var(--text-3)">${tc.count} ad${tc.count!==1?'s':''} \u2022 ${tc.boostReady} boost-ready</div>
             </div>
           </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div class="compare-stat">
+              <div style="font-size:11px; color:var(--text-3)">Avg Score</div>
+              <div style="font-size:20px; font-weight:700; color:${sColor(tc.avgScore)}">${tc.avgScore}</div>
+            </div>`;
+        for (const [label, value, big] of tc.stats) {
+          h += `<div class="compare-stat">
+              <div style="font-size:11px; color:var(--text-3)">${label}</div>
+              <div style="font-size:${big?'20':'16'}px; font-weight:${big?'700':'600'}; color:var(--text-1)">${value}</div>
+            </div>`;
+        }
+        h += `</div></div>`;
+      }
 
-          <!-- Shared metrics comparison -->
+      h += `</div>
+          <!-- Impressions comparison bar -->
           <div style="margin-top:14px; background:var(--bg-1); border:1px solid var(--border); border-radius:var(--radius-xs); padding:14px;">
-            <div style="font-size:12px; font-weight:600; color:var(--text-2); margin-bottom:10px;">Shared Metrics</div>
-            <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:8px; align-items:center;">
-              <div style="text-align:center;">
-                <div style="font-size:18px; font-weight:700; color:var(--blue)">${fmt(aggAwareness.totalImpressions)}</div>
-                <div style="font-size:11px; color:var(--text-3)">Impressions</div>
-              </div>
-              <div style="font-size:11px; color:var(--text-3); padding:0 12px">vs</div>
-              <div style="text-align:center;">
-                <div style="font-size:18px; font-weight:700; color:var(--purple)">${fmt(aggEngagement.totalImpressions)}</div>
-                <div style="font-size:11px; color:var(--text-3)">Impressions</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>`;
-    } else if (awarenessAds.length > 0 || engagementAds.length > 0) {
-      const onlyType = awarenessAds.length > 0 ? 'Awareness' : 'Engagement';
-      const otherType = awarenessAds.length > 0 ? 'Engagement' : 'Awareness';
+            <div style="font-size:12px; font-weight:600; color:var(--text-2); margin-bottom:10px;">Total Impressions</div>
+            <div style="display:flex; justify-content:center; align-items:center; gap:16px; flex-wrap:wrap;">`;
+      for (const tc of typeCards) {
+        h += `<div style="text-align:center;">
+                <div style="font-size:18px; font-weight:700; color:${tc.color}">${fmt(tc.totalImpressions)}</div>
+                <div style="font-size:11px; color:var(--text-3)">${tc.label}</div>
+              </div>`;
+      }
+      h += `</div></div></div></div>`;
+    } else if (typeCards.length === 1) {
+      const activeTypes = typeCards.map(t => t.label).join(', ');
       h += `<div class="section" style="margin-top:24px">
         <div class="section-header">
           <div class="section-title">
-            <div class="section-icon" style="background:var(--purple-10); color:var(--purple)">⚡</div>
-            <h2>Awareness vs Engagement</h2>
+            <div class="section-icon" style="background:var(--purple-10); color:var(--purple)">\u26A1</div>
+            <h2>Campaign Type Comparison</h2>
           </div>
         </div>
-        <div class="empty"><h3>Only ${onlyType} ads available</h3><p>Campaign comparison will appear once ${otherType} ads are running too.</p></div>
+        <div class="empty"><h3>Only ${activeTypes} ads available</h3><p>Campaign comparison will appear once 2+ campaign types are running.</p></div>
       </div>`;
     }
 

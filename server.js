@@ -48,6 +48,7 @@ function detectCampaignTypeFallback(campaignName = "", adName = "") {
   const text = `${campaignName} ${adName}`.toLowerCase();
   if (text.includes("awareness") || text.includes("entertaining")) return "awareness";
   if (text.includes("engagement") || text.includes("education") || text.includes("educational")) return "engagement";
+  if (text.includes("traffic")) return "traffic";
   return "awareness";
 }
 
@@ -56,14 +57,13 @@ function objectiveToCampaignType(objective = "") {
   const obj = objective.toUpperCase();
   // Meta's modern OUTCOME_ objectives
   if (obj.includes("AWARENESS") || obj.includes("REACH") || obj.includes("VIDEO_VIEWS") || obj.includes("BRAND_AWARENESS")) return "awareness";
-  if (obj.includes("ENGAGEMENT") || obj.includes("TRAFFIC") || obj.includes("POST_ENGAGEMENT") || obj.includes("CONVERSIONS") || obj.includes("MESSAGES")) return "engagement";
-  // Legacy objectives
-  if (obj.includes("LINK_CLICKS")) return "engagement";
+  if (obj.includes("TRAFFIC") || obj.includes("LINK_CLICKS") || obj.includes("OUTCOME_TRAFFIC")) return "traffic";
+  if (obj.includes("ENGAGEMENT") || obj.includes("POST_ENGAGEMENT") || obj.includes("CONVERSIONS") || obj.includes("MESSAGES")) return "engagement";
   return null; // unknown — will fall back to keyword detection
 }
 
 function parseActions(actions = []) {
-  let likes = 0, comments = 0, shares = 0, saves = 0, video3sViews = 0;
+  let likes = 0, comments = 0, shares = 0, saves = 0, video3sViews = 0, linkClicks = 0;
 
   for (const action of actions) {
     const type = action.action_type;
@@ -73,9 +73,10 @@ function parseActions(actions = []) {
     if (["comment", "post_comment"].includes(type)) comments += value;
     if (["share", "post_share"].includes(type)) shares += value;
     if (["save", "post_save"].includes(type)) saves += value;
+    if (["link_click", "outbound_click"].includes(type)) linkClicks += value;
   }
 
-  return { likes, comments, shares, saves, video3sViews };
+  return { likes, comments, shares, saves, video3sViews, linkClicks };
 }
 
 // ====== NORMALIZED 0-100 SCORING ======
@@ -139,12 +140,38 @@ function computeNormalizedScores(rows) {
 
       row.engagement_score = round(shareScore * 0.4 + saveScore * 0.3 + commentScore * 0.2 + likeScore * 0.1);
       row.awareness_score = null;
+      row.traffic_score = null;
+    }
+  }
+
+  // Score traffic ads: CTR 40% + Link Clicks 30% + CPC (inverse CPM as proxy) 20% + Reach 10%
+  const traffic = rows.filter(r => r.campaign_type === "traffic");
+  if (traffic.length > 0) {
+    const ctrVals = traffic.map(r => r.ctr);
+    const clickVals = traffic.map(r => r.link_clicks);
+    const cpmVals = traffic.map(r => r.cpm);
+    const reachVals = traffic.map(r => r.reach);
+
+    const ctrMin = Math.min(...ctrVals), ctrMax = Math.max(...ctrVals);
+    const clickMin = Math.min(...clickVals), clickMax = Math.max(...clickVals);
+    const cpmMin = Math.min(...cpmVals), cpmMax = Math.max(...cpmVals);
+    const reachMin = Math.min(...reachVals), reachMax = Math.max(...reachVals);
+
+    for (const row of traffic) {
+      const ctrScore = normalizeHigher(row.ctr, ctrMin, ctrMax);
+      const clickScore = normalizeHigher(row.link_clicks, clickMin, clickMax);
+      const cpmScore = normalizeLower(row.cpm, cpmMin, cpmMax); // lower CPM = better
+      const reachScore = normalizeHigher(row.reach, reachMin, reachMax);
+
+      row.traffic_score = round(ctrScore * 0.4 + clickScore * 0.3 + cpmScore * 0.2 + reachScore * 0.1);
+      row.awareness_score = null;
+      row.engagement_score = null;
     }
   }
 
   // Boost recommendations based on normalized score (out of 100)
   for (const row of rows) {
-    const score = row.awareness_score ?? row.engagement_score ?? 0;
+    const score = row.awareness_score ?? row.engagement_score ?? row.traffic_score ?? 0;
     if (score >= 70) row.boost_recommendation = "boost";
     else if (score >= 40) row.boost_recommendation = "monitor";
     else row.boost_recommendation = "no boost";
@@ -290,6 +317,8 @@ async function generateAdInsights(ads) {
     const type = ad.campaign_type;
     if (type === 'awareness') {
       return `Ad ${i+1}: "${ad.ad_name}" (${ad.publisher_platform}) — Score: ${score}/100, Reach: ${ad.reach}, CPM: $${ad.cpm}, 3s View Rate: ${ad.video_3s_view_rate}%, Impressions: ${ad.impressions}`;
+    } else if (type === 'traffic') {
+      return `Ad ${i+1}: "${ad.ad_name}" (${ad.publisher_platform}) — Score: ${score}/100, Link Clicks: ${ad.link_clicks}, CTR: ${ad.ctr}%, CPM: $${ad.cpm}, Reach: ${ad.reach}, Impressions: ${ad.impressions}`;
     } else {
       return `Ad ${i+1}: "${ad.ad_name}" (${ad.publisher_platform}) — Score: ${score}/100, Shares: ${ad.shares}, Saves: ${ad.saves}, Comments: ${ad.comments}, Likes: ${ad.likes}`;
     }
@@ -388,8 +417,11 @@ app.get("/capture", async (req, res) => {
         comments: 0,
         shares: 0,
         saves: 0,
+        link_clicks: 0,
+        ctr: 0,
         awareness_score: null,
         engagement_score: null,
+        traffic_score: null,
         boost_recommendation: null,
         thumbnail_url: thumbnailMap[item.ad_id] || null
       };
@@ -400,6 +432,7 @@ app.get("/capture", async (req, res) => {
       existing.comments += parsed.comments;
       existing.shares += parsed.shares;
       existing.saves += parsed.saves;
+      existing.link_clicks += parsed.linkClicks;
       existing.impressions = safeNumber(item.impressions);
       existing.reach = safeNumber(item.reach);
       existing.cpm = safeNumber(item.cpm);
@@ -409,10 +442,12 @@ app.get("/capture", async (req, res) => {
 
     const cleanRows = [...grouped.values()];
 
-    // Compute 3s view rates
+    // Compute 3s view rates and CTR
     for (const row of cleanRows) {
       row.video_3s_view_rate =
         row.impressions > 0 ? round((row.video_3s_views / row.impressions) * 100) : 0;
+      row.ctr =
+        row.impressions > 0 ? round((row.link_clicks / row.impressions) * 100) : 0;
     }
 
     // Calculate normalized 0-100 scores
