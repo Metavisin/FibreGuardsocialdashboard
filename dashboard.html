@@ -248,6 +248,20 @@
     min-height: 34px;
   }
 
+  /* AI INSIGHT */
+  .ai-insight {
+    display: flex; align-items: flex-start; gap: 6px;
+    padding: 7px 9px; margin-bottom: 10px;
+    background: linear-gradient(135deg, rgba(83,183,232,0.06), rgba(168,85,247,0.06));
+    border: 1px solid rgba(83,183,232,0.1);
+    border-radius: var(--radius-xs);
+    font-size: 11px; line-height: 1.45; color: var(--text-2);
+  }
+  .ai-insight-icon {
+    flex-shrink: 0; margin-top: 1px;
+    font-size: 10px; opacity: 0.7;
+  }
+
   .ad-metrics {
     display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
     margin-bottom: 12px;
@@ -689,6 +703,12 @@
       // Body
       h += `<div class="ad-body">`;
       h += `<div class="ad-name" title="${esc(d.ad_name)}">${esc(d.ad_name)}</div>`;
+
+      // AI Insight
+      if (d.ai_insight) {
+        h += `<div class="ai-insight"><span class="ai-insight-icon">\u2728</span><span>${esc(d.ai_insight)}</span></div>`;
+      }
+
       h += `<div class="ad-metrics">`;
       m.forEach(([label, value]) => {
         h += `<div class="ad-metric"><div class="ad-metric-label">${label}</div><div class="ad-metric-value">${value}</div></div>`;

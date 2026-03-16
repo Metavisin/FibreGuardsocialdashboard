@@ -27,6 +27,7 @@ const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
 const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const PORT = process.env.PORT || 3000;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -232,6 +233,67 @@ app.get("/debug-creatives", async (req, res) => {
   }
 });
 
+// ====== AI INSIGHTS (Claude) ======
+
+async function generateAdInsights(ads) {
+  if (!ANTHROPIC_API_KEY || ads.length === 0) return;
+
+  // Build a concise summary of all ads for Claude to analyze in one call
+  const adSummaries = ads.map((ad, i) => {
+    const score = ad.awareness_score ?? ad.engagement_score ?? 'N/A';
+    const type = ad.campaign_type;
+    if (type === 'awareness') {
+      return `Ad ${i+1}: "${ad.ad_name}" (${ad.publisher_platform}) — Score: ${score}/100, Reach: ${ad.reach}, CPM: $${ad.cpm}, 3s View Rate: ${ad.video_3s_view_rate}%, Impressions: ${ad.impressions}`;
+    } else {
+      return `Ad ${i+1}: "${ad.ad_name}" (${ad.publisher_platform}) — Score: ${score}/100, Shares: ${ad.shares}, Saves: ${ad.saves}, Comments: ${ad.comments}, Likes: ${ad.likes}`;
+    }
+  }).join('\n');
+
+  const prompt = `You are an expert social media ad analyst for FibreGuard (stain-free textile technology). Analyze each ad and give a 1-2 sentence insight. Be specific about what's working or not, and give one actionable suggestion.
+
+Format your response as JSON array with objects: [{"index": 0, "insight": "..."}, ...]
+
+The ads:
+${adSummaries}
+
+Rules:
+- Keep each insight under 120 characters
+- Be direct and actionable (e.g. "Strong reach at low CPM — boost now" or "Low saves suggest weak CTA — try adding a hook")
+- Reference specific metrics that stand out
+- For awareness: focus on reach efficiency and view rates
+- For engagement: focus on share/save ratio and audience resonance`;
+
+  try {
+    const response = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }]
+    }, {
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      }
+    });
+
+    const text = response.data.content[0].text;
+    // Extract JSON from response (handle potential markdown wrapping)
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const insights = JSON.parse(jsonMatch[0]);
+      for (const item of insights) {
+        if (item.index >= 0 && item.index < ads.length && item.insight) {
+          ads[item.index].ai_insight = item.insight.substring(0, 200);
+        }
+      }
+      console.log(`Generated AI insights for ${insights.length} ads`);
+    }
+  } catch (err) {
+    console.warn('AI insight generation failed (non-blocking):', err.message);
+    // Non-blocking — capture continues without insights
+  }
+}
+
 // ====== CAPTURE ENDPOINT ======
 
 app.get("/capture", async (req, res) => {
@@ -298,6 +360,9 @@ app.get("/capture", async (req, res) => {
 
     // Calculate normalized 0-100 scores
     computeNormalizedScores(cleanRows);
+
+    // Generate AI insights (non-blocking — capture succeeds even if AI fails)
+    await generateAdInsights(cleanRows);
 
     const { error } = await supabase.from("ad_snapshots").insert(cleanRows);
     if (error) throw error;
