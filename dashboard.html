@@ -237,6 +237,21 @@
   .status-live { background: rgba(52,211,153,0.85); color: #000; }
   .status-paused { background: rgba(251,191,36,0.85); color: #000; }
   .status-ended { background: rgba(248,113,113,0.7); color: #fff; }
+  .status-budget-spent { background: rgba(120,120,120,0.85); color: #fff; }
+  .status-new { background: rgba(96,165,250,0.85); color: #000; }
+
+  /* Grayed-out card for budget-spent ads */
+  .ad-card.budget-spent {
+    opacity: 0.45;
+    filter: grayscale(70%);
+    order: 999; /* push to end */
+  }
+  .ad-card.budget-spent:hover { opacity: 0.7; filter: grayscale(40%); }
+
+  /* New/pending ad card */
+  .ad-card.ad-new {
+    border: 1px dashed rgba(96,165,250,0.4);
+  }
 
   .badge-score {
     position: absolute; top: 8px; right: 8px;
@@ -695,6 +710,11 @@
 
   function sortAds(arr, sort) {
     arr.sort((a, b) => {
+      // Budget-spent ads always go last, NEW ads go first
+      const aPriority = a.ad_status === 'BUDGET_SPENT' ? 2 : a.ad_status === 'NEW' ? 0 : 1;
+      const bPriority = b.ad_status === 'BUDGET_SPENT' ? 2 : b.ad_status === 'NEW' ? 0 : 1;
+      if (aPriority !== bPriority) return aPriority - bPriority;
+
       const sa = a._score ?? -1;
       const sb = b._score ?? -1;
       switch(sort) {
@@ -771,15 +791,21 @@
   function buildSection({type, title, sub, iconClass, icon, formula, chipClass, ads, scoreKey, metrics, summaryExtras}) {
     let h = `<div class="section">`;
 
-    // Count live vs ended ads
+    // Count live vs budget-spent vs new ads
     const liveCount = ads.filter(d => d.ad_status === 'ACTIVE').length;
-    const endedCount = ads.length - liveCount;
+    const budgetSpentCount = ads.filter(d => d.ad_status === 'BUDGET_SPENT').length;
+    const newCount = ads.filter(d => d.ad_status === 'NEW').length;
+
+    let countParts = [];
+    if (liveCount > 0) countParts.push(liveCount + ' live');
+    if (newCount > 0) countParts.push(newCount + ' new');
+    if (budgetSpentCount > 0) countParts.push(budgetSpentCount + ' completed');
 
     h += `<div class="section-header">
       <div class="section-title">
         <div class="section-icon ${iconClass}">${icon}</div>
         <h2>${title}</h2>
-        <span class="section-count">${ads.length} ad${ads.length!==1?'s':''}${liveCount > 0 ? ' \u2022 ' + liveCount + ' live' : ''}</span>
+        <span class="section-count">${ads.length} ad${ads.length!==1?'s':''}${countParts.length ? ' \u2022 ' + countParts.join(' \u2022 ') : ''}</span>
       </div>
       <span style="font-size:12px; color:var(--text-3)">${sub}</span>
     </div>`;
@@ -829,16 +855,20 @@
       const platLabel = cap(d.publisher_platform || 'unknown');
       const hasThumb = d.thumbnail_url && d.thumbnail_url.startsWith('http');
 
-      h += `<div class="ad-card ${isWinner ? 'winner' : ''}">`;
-      if (isWinner) h += `<div class="winner-crown">\u2605 Top Performer</div>`;
-
-      // Visual
       // Determine ad status
       const adStatus = d.ad_status || 'UNKNOWN';
+      const isBudgetSpent = adStatus === 'BUDGET_SPENT';
+      const isNew = adStatus === 'NEW';
       const isLive = adStatus === 'ACTIVE';
       const isPaused = adStatus === 'PAUSED';
-      const statusClass = isLive ? 'status-live' : isPaused ? 'status-paused' : 'status-ended';
-      const statusLabel = isLive ? 'Live' : isPaused ? 'Paused' : 'Ended';
+      const statusClass = isBudgetSpent ? 'status-budget-spent' : isNew ? 'status-new' : isLive ? 'status-live' : isPaused ? 'status-paused' : 'status-ended';
+      const statusLabel = isBudgetSpent ? 'Budget Spent' : isNew ? 'New' : isLive ? 'Live' : isPaused ? 'Paused' : 'Ended';
+
+      const cardExtraClass = isBudgetSpent ? 'budget-spent' : isNew ? 'ad-new' : '';
+      h += `<div class="ad-card ${isWinner ? 'winner' : ''} ${cardExtraClass}">`;
+      if (isWinner && !isBudgetSpent) h += `<div class="winner-crown">\u2605 Top Performer</div>`;
+
+      // Visual
 
       h += `<div class="ad-visual">`;
       if (hasThumb) {
