@@ -366,17 +366,46 @@ Rules:
 }
 
 // ====== BUDGET STATUS HELPER ======
-// Determines if an ad's budget is spent by comparing spend to adset/campaign lifetime budget.
-// Returns "BUDGET_SPENT" if spend >= 95% of lifetime budget, else returns the original ad status.
-function determineBudgetStatus(adStatus, spend, campaignId, adsetName, campaignBudgets, adsetBudgets) {
-  // Check adset budget first (more specific), then campaign budget
+// Determines if an ad's budget is effectively spent.
+//
+// For LIFETIME budgets: simple — spend >= 95% of lifetime budget = done.
+// For DAILY budgets (which FibreGuard uses): compare total campaign spend vs
+// what the daily budget SHOULD have produced over the ad's lifetime.
+// If the ad has been running 5+ days but only used a small fraction of its
+// potential daily budget, it means Meta stopped delivering it = effectively done.
+//
+// totalCampaignSpend = sum of spend across ALL platforms for this campaign_id
+// adCreatedTime = when the ad was created (ISO string)
+
+function determineBudgetStatus(adStatus, totalCampaignSpend, campaignId, adsetName, campaignBudgets, adsetBudgets, adCreatedTime) {
   const adsetBudget = adsetBudgets[adsetName];
   const campaignBudget = campaignBudgets[campaignId];
 
+  // Check lifetime budget first
   const lifetimeBudget = (adsetBudget?.lifetime_budget || 0) || (campaignBudget?.lifetime_budget || 0);
-
-  if (lifetimeBudget > 0 && spend >= lifetimeBudget * 0.95) {
+  if (lifetimeBudget > 0 && totalCampaignSpend >= lifetimeBudget * 0.95) {
     return "BUDGET_SPENT";
+  }
+
+  // Check daily budget — detect "effectively done" ads
+  const dailyBudget = (adsetBudget?.daily_budget || 0) || (campaignBudget?.daily_budget || 0);
+  if (dailyBudget > 0 && adCreatedTime) {
+    const adAgeMs = Date.now() - new Date(adCreatedTime).getTime();
+    const adAgeDays = adAgeMs / (1000 * 60 * 60 * 24);
+
+    // Only check ads that have been running for 5+ days
+    if (adAgeDays >= 5) {
+      // What the campaign COULD have spent if fully active every day
+      const potentialSpend = dailyBudget * adAgeDays;
+      // Spend ratio: what fraction of potential was actually used
+      const spendRatio = totalCampaignSpend / potentialSpend;
+
+      // If the ad used less than 15% of its potential daily budget over time,
+      // it means Meta stopped delivering it — effectively done
+      if (spendRatio < 0.15) {
+        return "BUDGET_SPENT";
+      }
+    }
   }
 
   return adStatus;
@@ -385,6 +414,17 @@ function determineBudgetStatus(adStatus, spend, campaignId, adsetName, campaignB
 // ====== PROCESS INSIGHTS ROWS ======
 // Shared logic for processing Meta insights rows into clean ad data
 function processInsightRows(rows, { objectiveMap, statusMap, createdTimeMap, thumbnailMap, campaignBudgets, adsetBudgets, snapshotHours }) {
+  // Pre-calculate total spend per campaign_id (across all platforms)
+  // This is needed because daily_budget applies to the whole campaign, not per-platform
+  const campaignSpendTotals = {};
+  for (const item of rows) {
+    const cid = item.campaign_id;
+    if (cid) {
+      campaignSpendTotals[cid] = (campaignSpendTotals[cid] || 0) + safeNumber(item.spend);
+    }
+  }
+  console.log("Campaign spend totals:", JSON.stringify(campaignSpendTotals));
+
   const grouped = new Map();
 
   for (const item of rows) {
@@ -402,7 +442,9 @@ function processInsightRows(rows, { objectiveMap, statusMap, createdTimeMap, thu
 
     const rawStatus = statusMap[item.ad_id] || "UNKNOWN";
     const spend = safeNumber(item.spend);
-    const adStatus = determineBudgetStatus(rawStatus, spend, item.campaign_id, item.adset_name, campaignBudgets, adsetBudgets);
+    const totalCampaignSpend = campaignSpendTotals[item.campaign_id] || spend;
+    const adCreatedTime = createdTimeMap[item.ad_id] || null;
+    const adStatus = determineBudgetStatus(rawStatus, totalCampaignSpend, item.campaign_id, item.adset_name, campaignBudgets, adsetBudgets, adCreatedTime);
 
     let costPerClick = 0;
     for (const cpa of (item.cost_per_action_type || [])) {
@@ -661,6 +703,15 @@ app.get("/smart-capture", async (req, res) => {
       }
     }
 
+    // Pre-calculate total spend per campaign_id (same as processInsightRows)
+    const campaignSpendTotals = {};
+    for (const item of rows) {
+      const cid = item.campaign_id;
+      if (cid) {
+        campaignSpendTotals[cid] = (campaignSpendTotals[cid] || 0) + safeNumber(item.spend);
+      }
+    }
+
     const now = new Date();
     const grouped = new Map();
     let skippedCount = 0;
@@ -675,11 +726,13 @@ app.get("/smart-capture", async (req, res) => {
 
       const adId = item.ad_id || null;
       const spend = safeNumber(item.spend);
+      const totalCampaignSpend = campaignSpendTotals[item.campaign_id] || spend;
+      const adCreatedTime = createdTimeMap[adId] || null;
 
       // Check if budget is spent — skip capturing dead ads
       const budgetStatus = determineBudgetStatus(
-        statusMap[adId] || "UNKNOWN", spend, item.campaign_id, item.adset_name,
-        campaignBudgets, adsetBudgets
+        statusMap[adId] || "UNKNOWN", totalCampaignSpend, item.campaign_id, item.adset_name,
+        campaignBudgets, adsetBudgets, adCreatedTime
       );
       if (budgetStatus === "BUDGET_SPENT") {
         budgetSpentCount++;
@@ -687,8 +740,8 @@ app.get("/smart-capture", async (req, res) => {
       }
 
       // Determine ad age from created_time
-      const adCreatedTime = createdTimeMap[adId] ? new Date(createdTimeMap[adId]) : null;
-      const adAgeHours = adCreatedTime ? (now - adCreatedTime) / (1000 * 60 * 60) : Infinity;
+      const adCreatedDate = adCreatedTime ? new Date(adCreatedTime) : null;
+      const adAgeHours = adCreatedDate ? (now - adCreatedDate) / (1000 * 60 * 60) : Infinity;
       const captureIntervalHours = adAgeHours < 12 ? 1 : 24;
 
       const lastCapture = lastCaptureMap[adId];
