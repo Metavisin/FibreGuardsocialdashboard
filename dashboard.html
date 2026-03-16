@@ -944,6 +944,7 @@
 
     for (const [adName, items] of multiPlatform) {
       const isAwareness = items[0].campaign_type === 'awareness';
+      const isTraffic = items[0].campaign_type === 'traffic';
       const thumb = items.find(d => d.thumbnail_url)?.thumbnail_url;
 
       h += `<div class="compare-group">`;
@@ -962,8 +963,6 @@
 
       // Table
       h += `<table class="compare-table">`;
-
-      const isTraffic = items[0].campaign_type === 'traffic';
 
       if (isAwareness) {
         h += `<tr><th>Platform</th><th>Reach</th><th>CPM</th><th>3s View Rate</th><th>Impressions</th><th>Score</th></tr>`;
