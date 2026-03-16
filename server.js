@@ -302,6 +302,56 @@ app.get("/debug-creatives", async (req, res) => {
   }
 });
 
+// Debug: show raw effective_status + campaign status for every ad
+app.get("/debug-statuses", async (req, res) => {
+  try {
+    // Get all ads with their effective_status and configured_status
+    const adsUrl = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;
+    const { data: adsData } = await axios.get(adsUrl, {
+      params: {
+        access_token: META_ACCESS_TOKEN,
+        fields: "id,name,effective_status,configured_status,created_time,campaign{id,name,effective_status,configured_status,daily_budget,lifetime_budget,budget_remaining,stop_time},adset{id,name,effective_status,configured_status,daily_budget,lifetime_budget,budget_remaining,end_time}",
+        limit: 200
+      }
+    });
+    const ads = adsData.data || [];
+
+    // Summarize statuses
+    const statusCounts = {};
+    const results = ads.map(ad => {
+      const s = ad.effective_status || "UNKNOWN";
+      statusCounts[s] = (statusCounts[s] || 0) + 1;
+      return {
+        ad_id: ad.id,
+        ad_name: ad.name,
+        ad_effective_status: ad.effective_status,
+        ad_configured_status: ad.configured_status,
+        campaign_name: ad.campaign?.name,
+        campaign_effective_status: ad.campaign?.effective_status,
+        campaign_configured_status: ad.campaign?.configured_status,
+        campaign_daily_budget: ad.campaign?.daily_budget,
+        campaign_lifetime_budget: ad.campaign?.lifetime_budget,
+        campaign_budget_remaining: ad.campaign?.budget_remaining,
+        campaign_stop_time: ad.campaign?.stop_time,
+        adset_effective_status: ad.adset?.effective_status,
+        adset_configured_status: ad.adset?.configured_status,
+        adset_daily_budget: ad.adset?.daily_budget,
+        adset_lifetime_budget: ad.adset?.lifetime_budget,
+        adset_budget_remaining: ad.adset?.budget_remaining,
+        adset_end_time: ad.adset?.end_time,
+      };
+    });
+
+    res.json({
+      total_ads: ads.length,
+      status_summary: statusCounts,
+      ads: results
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message, details: err.response?.data });
+  }
+});
+
 // ====== AI INSIGHTS (Claude) ======
 
 async function generateAdInsights(ads) {
