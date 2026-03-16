@@ -240,16 +240,15 @@
   .status-budget-spent { background: rgba(120,120,120,0.85); color: #fff; }
   .status-new { background: rgba(96,165,250,0.85); color: #000; }
 
-  /* Grayed-out card for budget-spent / completed ads — hidden by default */
+  /* Grayed-out card for completed / paused ads */
   .ad-card.budget-spent {
-    display: none;
-    opacity: 0.35;
+    opacity: 0.3;
     filter: grayscale(80%);
     order: 999; /* push to end */
   }
   .ad-card.budget-spent:hover { opacity: 0.55; filter: grayscale(50%); }
-  /* When "show completed" toggle is on */
-  .ad-grid.show-completed .ad-card.budget-spent { display: block; }
+  /* When "Hide Completed" toggle is active, fully hide them */
+  .ad-grid.hide-completed .ad-card.budget-spent { display: none; }
 
   /* New/pending ad card */
   .ad-card.ad-new {
@@ -510,7 +509,7 @@
       </div>
     </div>
     <div class="filter-group">
-      <button class="pill" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; opacity:0.6;">Show Completed</button>
+      <button class="pill" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; opacity:0.6;">Hide Completed</button>
     </div>
     <div class="filter-spacer"></div>
     <div class="filter-group">
@@ -1275,13 +1274,13 @@
   }
 
   // ====== TOGGLE COMPLETED ADS ======
-  let showCompleted = false;
+  let hideCompleted = false;
   function toggleCompleted(btn) {
-    showCompleted = !showCompleted;
-    btn.classList.toggle('active', showCompleted);
-    btn.style.opacity = showCompleted ? '1' : '0.6';
+    hideCompleted = !hideCompleted;
+    btn.classList.toggle('active', hideCompleted);
+    btn.style.opacity = hideCompleted ? '1' : '0.6';
     document.querySelectorAll('.ad-grid').forEach(g => {
-      g.classList.toggle('show-completed', showCompleted);
+      g.classList.toggle('hide-completed', hideCompleted);
     });
   }
 
