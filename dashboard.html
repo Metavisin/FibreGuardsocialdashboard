@@ -106,6 +106,8 @@
   }
   .pill:hover { color: var(--text-2); }
   .pill.active { background: var(--blue-10); color: var(--blue); border-color: var(--blue-20); }
+  .live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); margin-right: 4px; animation: livePulse 2s infinite; }
+  @keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
   .filter-spacer { flex: 1; }
 
   /* TBD BANNER */
@@ -470,11 +472,11 @@
     <div class="filter-group">
       <span class="filter-label">View</span>
       <div class="pill-group" id="viewPills">
-        <button class="pill active" onclick="setView('latest', this)">Latest</button>
+        <button class="pill active" onclick="setView('latest', this)"><span class="live-dot"></span>Live</button>
         <button class="pill" onclick="setView('compare', this)">Compare</button>
         <button class="pill" onclick="setView(1, this)">1h</button>
-        <button class="pill" onclick="setView(4, this)">4h</button>
-        <button class="pill" onclick="setView(8, this)">8h</button>
+        <button class="pill" onclick="setView(6, this)">6h</button>
+        <button class="pill" onclick="setView(12, this)">12h</button>
         <button class="pill" onclick="setView(24, this)">24h</button>
         <button class="pill" onclick="setView(48, this)">48h</button>
       </div>
@@ -513,8 +515,12 @@
     return res.json();
   }
 
-  let allData = [];
+  let allData = [];       // Supabase historical data (for sparklines + snapshots)
+  let liveData = [];       // Real-time data from Meta API
   let currentView = 'latest';
+
+  // Detect the base URL for server endpoints (same origin as the page)
+  const SERVER_BASE = window.location.origin;
 
   // ====== CLIENT-SIDE 0-100 SCORING ======
   // Recalculates scores from raw metrics so old data is also correct
@@ -585,10 +591,19 @@
   document.addEventListener('DOMContentLoaded', () => loadData());
 
   async function loadData() {
-    document.getElementById('dashboardContent').innerHTML = '<div class="loading"><div class="spinner"></div> Loading...</div>';
+    document.getElementById('dashboardContent').innerHTML = '<div class="loading"><div class="spinner"></div> Fetching live data from Meta...</div>';
     try {
-      allData = (await sbFetch('ad_snapshots', 'select=*&order=captured_at.desc'))
+      // Fetch live data from Meta API and historical data from Supabase in parallel
+      const [liveRes, historicalData] = await Promise.all([
+        fetch(`${SERVER_BASE}/live`).then(r => r.json()),
+        sbFetch('ad_snapshots', 'select=*&order=captured_at.desc')
+      ]);
+
+      liveData = (liveRes.data || [])
         .filter(d => d.publisher_platform && d.publisher_platform !== 'unknown');
+      allData = historicalData
+        .filter(d => d.publisher_platform && d.publisher_platform !== 'unknown');
+
       populateFilters();
       applyFilters();
       updateTimestamp();
@@ -598,16 +613,19 @@
   }
 
   function updateTimestamp() {
-    if (allData.length > 0) {
+    const el = document.getElementById('lastUpdated');
+    if (currentView === 'latest' && liveData.length > 0) {
+      el.textContent = `Live data \u2022 ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+    } else if (allData.length > 0) {
       const d = new Date(allData[0].captured_at);
-      document.getElementById('lastUpdated').textContent =
-        `Last capture: ${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+      el.textContent = `Last capture: ${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
     }
   }
 
   function populateFilters() {
     const sel = document.getElementById('filterCampaign');
-    const campaigns = [...new Set(allData.map(d => d.campaign_name))];
+    // Combine live + historical campaigns for the dropdown
+    const campaigns = [...new Set([...liveData, ...allData].map(d => d.campaign_name))];
     sel.innerHTML = '<option value="all">All Campaigns</option>';
     campaigns.forEach(c => {
       const o = document.createElement('option');
@@ -624,23 +642,22 @@
     applyFilters();
   }
 
-  function applyFilters() {
+  async function applyFilters() {
     const platform = document.getElementById('filterPlatform').value;
     const campaign = document.getElementById('filterCampaign').value;
     const sort = document.getElementById('filterSort').value;
 
-    // Compare view: show all platforms side-by-side per ad
+    // Compare view: use live data for real-time comparison
     if (currentView === 'compare') {
-      // Get latest snapshot per ad+platform (across all platforms)
+      const sourceData = liveData.length > 0 ? liveData : allData;
       const latestMap = new Map();
-      for (const d of allData) {
+      for (const d of sourceData) {
         const key = `${d.ad_name}__${d.publisher_platform}`;
         if (!latestMap.has(key) || new Date(d.captured_at) > new Date(latestMap.get(key).captured_at)) {
           latestMap.set(key, d);
         }
       }
       let all = [...latestMap.values()];
-      // Apply campaign filter only (not platform — we need all platforms for comparison)
       if (campaign !== 'all') all = all.filter(d => d.campaign_name === campaign);
 
       renderCompare(all);
@@ -650,16 +667,30 @@
     let filtered;
 
     if (currentView === 'latest') {
-      const latestMap = new Map();
-      for (const d of allData) {
-        const key = `${d.ad_name}__${d.publisher_platform}`;
-        if (!latestMap.has(key) || new Date(d.captured_at) > new Date(latestMap.get(key).captured_at)) {
-          latestMap.set(key, d);
-        }
-      }
-      filtered = [...latestMap.values()];
+      // Use live data from Meta API (real-time)
+      filtered = [...liveData];
+      updateTimestamp();
     } else {
-      filtered = allData.filter(d => d.snapshot_hours === currentView);
+      // Time window: fetch snapshot from Supabase via server endpoint
+      const hours = currentView;
+      const content = document.getElementById('dashboardContent');
+      content.innerHTML = `<div class="loading"><div class="spinner"></div> Loading ${hours}h snapshot...</div>`;
+
+      try {
+        const res = await fetch(`${SERVER_BASE}/snapshot/${hours}`);
+        const json = await res.json();
+        filtered = (json.data || []).filter(d => d.publisher_platform && d.publisher_platform !== 'unknown');
+
+        // Update timestamp to show snapshot time
+        const el = document.getElementById('lastUpdated');
+        if (json.actual_time) {
+          const d = new Date(json.actual_time);
+          el.textContent = `Snapshot: ${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+        }
+      } catch (err) {
+        content.innerHTML = `<div class="empty"><h3>Failed to load snapshot</h3><p>${err.message}</p></div>`;
+        return;
+      }
     }
 
     // Apply platform + campaign filters
@@ -926,7 +957,7 @@
       }
       h += `<div class="compare-ad-info">
         <div class="compare-ad-name" title="${esc(adName)}">${esc(adName)}</div>
-        <div class="compare-ad-type">${isAwareness ? 'Awareness' : 'Engagement'} campaign</div>
+        <div class="compare-ad-type">${isAwareness ? 'Awareness' : isTraffic ? 'Traffic' : 'Engagement'} campaign</div>
       </div></div>`;
 
       // Table
@@ -1133,15 +1164,30 @@
 
   // ====== SPARKLINE ======
   // Collects all snapshots for a given ad+platform across time, sorted chronologically
+  // Uses historical Supabase data + current live data point for the trend line
   function getSparklineData(ad) {
-    return allData
+    const historical = allData
       .filter(d => d.ad_name === ad.ad_name && d.publisher_platform === ad.publisher_platform)
       .sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at));
+
+    // If we're on live view, append the current live data point so sparkline shows up-to-now
+    if (currentView === 'latest' && liveData.length > 0) {
+      const livePoint = liveData.find(d => d.ad_name === ad.ad_name && d.publisher_platform === ad.publisher_platform);
+      if (livePoint) {
+        // Avoid duplicate if the last historical point is very recent
+        const lastHistorical = historical[historical.length - 1];
+        if (!lastHistorical || Math.abs(new Date(lastHistorical.captured_at) - new Date(livePoint.captured_at)) > 60000) {
+          historical.push(livePoint);
+        }
+      }
+    }
+    return historical;
   }
 
   // Picks the metric to chart based on campaign type
   function sparklineMetric(d) {
     if (d.campaign_type === 'awareness') return d.reach || 0;
+    if (d.campaign_type === 'traffic') return d.link_clicks || 0;
     return (d.shares || 0) + (d.saves || 0) + (d.comments || 0) + (d.likes || 0);
   }
 
@@ -1182,7 +1228,7 @@
     const history = getSparklineData(ad);
     const values = history.map(d => sparklineMetric(d));
     const label = sparklineLabel(ad);
-    const color = ad.campaign_type === 'awareness' ? '#53B7E8' : '#A855F7';
+    const color = ad.campaign_type === 'awareness' ? '#53B7E8' : ad.campaign_type === 'traffic' ? '#34D399' : '#A855F7';
 
     let h = `<div class="sparkline-wrap">`;
     h += `<div class="sparkline-header">`;

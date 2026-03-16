@@ -481,6 +481,145 @@ app.get("/capture", async (req, res) => {
   }
 });
 
+// ====== LIVE ENDPOINT (real-time from Meta, no save) ======
+
+app.get("/live", async (req, res) => {
+  try {
+    // Fetch insights, thumbnails, and campaign objectives in parallel
+    const [rows, thumbnailMap, objectiveMap] = await Promise.all([
+      fetchMetaInsights(),
+      fetchAdThumbnails(),
+      fetchCampaignObjectives()
+    ]);
+
+    const grouped = new Map();
+
+    for (const item of rows) {
+      const campaign_name = item.campaign_name || "";
+      const ad_name = item.ad_name || "";
+      const publisher_platform = (item.publisher_platform || "").toLowerCase();
+
+      if (!publisher_platform || !["facebook", "instagram", "messenger", "audience_network"].includes(publisher_platform)) continue;
+      if (publisher_platform === "audience_network" || publisher_platform === "messenger") continue;
+
+      const key = `${campaign_name}__${ad_name}__${publisher_platform}`;
+
+      const apiObjective = objectiveMap[campaign_name] || "";
+      const campaignType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(campaign_name, ad_name);
+
+      const existing = grouped.get(key) || {
+        captured_at: new Date().toISOString(),
+        campaign_type: campaignType,
+        campaign_name,
+        ad_name,
+        ad_id: item.ad_id || null,
+        publisher_platform,
+        impressions: safeNumber(item.impressions),
+        reach: safeNumber(item.reach),
+        cpm: safeNumber(item.cpm),
+        video_3s_views: 0,
+        video_3s_view_rate: 0,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        saves: 0,
+        link_clicks: 0,
+        ctr: 0,
+        awareness_score: null,
+        engagement_score: null,
+        traffic_score: null,
+        boost_recommendation: null,
+        thumbnail_url: thumbnailMap[item.ad_id] || null
+      };
+
+      const parsed = parseActions(item.actions || []);
+      existing.video_3s_views += parsed.video3sViews;
+      existing.likes += parsed.likes;
+      existing.comments += parsed.comments;
+      existing.shares += parsed.shares;
+      existing.saves += parsed.saves;
+      existing.link_clicks += parsed.linkClicks;
+      existing.impressions = safeNumber(item.impressions);
+      existing.reach = safeNumber(item.reach);
+      existing.cpm = safeNumber(item.cpm);
+
+      grouped.set(key, existing);
+    }
+
+    const cleanRows = [...grouped.values()];
+
+    for (const row of cleanRows) {
+      row.video_3s_view_rate =
+        row.impressions > 0 ? round((row.video_3s_views / row.impressions) * 100) : 0;
+      row.ctr =
+        row.impressions > 0 ? round((row.link_clicks / row.impressions) * 100) : 0;
+    }
+
+    computeNormalizedScores(cleanRows);
+
+    // Generate AI insights (non-blocking)
+    await generateAdInsights(cleanRows);
+
+    console.log(`Live endpoint: returning ${cleanRows.length} ads (not saved to DB)`);
+    res.json({ data: cleanRows });
+  } catch (error) {
+    res.status(500).json({
+      error: "Live fetch failed",
+      details: error.response?.data || error.message
+    });
+  }
+});
+
+// ====== SNAPSHOT QUERY ENDPOINT ======
+// Returns the closest snapshot to N hours ago from Supabase
+
+app.get("/snapshot/:hours", async (req, res) => {
+  try {
+    const hoursAgo = parseInt(req.params.hours) || 1;
+    const targetTime = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+
+    // Get all snapshots, find the batch closest to the target time
+    const { data, error } = await supabase
+      .from("ad_snapshots")
+      .select("*")
+      .order("captured_at", { ascending: false });
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return res.json({ data: [], target_time: targetTime.toISOString(), message: "No snapshots available" });
+    }
+
+    // Find the unique captured_at timestamp closest to our target time
+    const timestamps = [...new Set(data.map(d => d.captured_at))];
+    let closestTimestamp = timestamps[0];
+    let closestDiff = Math.abs(new Date(timestamps[0]) - targetTime);
+
+    for (const ts of timestamps) {
+      const diff = Math.abs(new Date(ts) - targetTime);
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        closestTimestamp = ts;
+      }
+    }
+
+    // Return all rows from that snapshot batch
+    const snapshotData = data.filter(d => d.captured_at === closestTimestamp);
+
+    res.json({
+      data: snapshotData,
+      target_time: targetTime.toISOString(),
+      actual_time: closestTimestamp,
+      hours_requested: hoursAgo
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Snapshot fetch failed",
+      details: error.message
+    });
+  }
+});
+
 // ====== DASHBOARD DATA ENDPOINT ======
 
 app.get("/dashboard", async (req, res) => {
