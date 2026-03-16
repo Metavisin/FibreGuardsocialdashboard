@@ -228,6 +228,16 @@
   .plat-tiktok { background: rgba(0,0,0,0.85); color: white; border: 1px solid rgba(255,255,255,0.15); }
   .plat-unknown { background: rgba(85,96,120,0.85); color: white; }
 
+  .badge-status {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    padding: 2px 8px; border-radius: 4px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; backdrop-filter: blur(8px);
+  }
+  .status-live { background: rgba(52,211,153,0.85); color: #000; }
+  .status-paused { background: rgba(251,191,36,0.85); color: #000; }
+  .status-ended { background: rgba(248,113,113,0.7); color: #fff; }
+
   .badge-score {
     position: absolute; top: 8px; right: 8px;
     padding: 5px 10px; border-radius: 8px;
@@ -522,69 +532,38 @@
   // Detect the base URL for server endpoints (same origin as the page)
   const SERVER_BASE = window.location.origin;
 
-  // ====== CLIENT-SIDE 0-100 SCORING ======
-  // Recalculates scores from raw metrics so old data is also correct
-  function normHigher(val, min, max) { return max === min ? 50 : ((val - min) / (max - min)) * 100; }
-  function normLower(val, min, max) { return max === min ? 50 : ((max - val) / (max - min)) * 100; }
+  // ====== ABSOLUTE SCORING (CLIENT-SIDE) ======
+  // Each ad scored independently — no comparison to other ads, no cap.
+  // Traffic:    (CTR% × 25) + max(0, (20 − CPM) × 2) + (link_clicks × 0.1)
+  // Awareness:  (reach/1000 × 2) + max(0, (20 − CPM) × 2) + (view_rate × 2)
+  // Engagement: (shares × 5) + (saves × 3) + (comments × 2) + (likes × 0.5)
 
   function recalcScores(ads) {
-    // Awareness ads
-    const aw = ads.filter(d => d.campaign_type === 'awareness');
-    if (aw.length >= 2) {
-      const rMin = Math.min(...aw.map(d=>d.reach||0)), rMax = Math.max(...aw.map(d=>d.reach||0));
-      const cMin = Math.min(...aw.map(d=>d.cpm||0)), cMax = Math.max(...aw.map(d=>d.cpm||0));
-      const vMin = Math.min(...aw.map(d=>d.video_3s_view_rate||0)), vMax = Math.max(...aw.map(d=>d.video_3s_view_rate||0));
-      for (const d of aw) {
+    for (const d of ads) {
+      if (d.campaign_type === 'traffic') {
         d._score = Math.round(
-          normHigher(d.reach||0, rMin, rMax) * 0.4 +
-          normLower(d.cpm||0, cMin, cMax) * 0.4 +
-          normHigher(d.video_3s_view_rate||0, vMin, vMax) * 0.2
+          ((d.ctr||0) * 25) +
+          Math.max(0, (20 - (d.cpm||0)) * 2) +
+          ((d.link_clicks||0) * 0.1)
         );
-        d._boost = d._score >= 70 ? 'boost' : d._score >= 40 ? 'monitor' : 'no boost';
-      }
-    } else {
-      // Not enough ads to compare — show TBD
-      for (const d of aw) { d._score = null; d._boost = 'tbd'; }
-    }
-
-    // Engagement ads
-    const en = ads.filter(d => d.campaign_type === 'engagement');
-    if (en.length >= 2) {
-      const shMin = Math.min(...en.map(d=>d.shares||0)), shMax = Math.max(...en.map(d=>d.shares||0));
-      const svMin = Math.min(...en.map(d=>d.saves||0)), svMax = Math.max(...en.map(d=>d.saves||0));
-      const coMin = Math.min(...en.map(d=>d.comments||0)), coMax = Math.max(...en.map(d=>d.comments||0));
-      const liMin = Math.min(...en.map(d=>d.likes||0)), liMax = Math.max(...en.map(d=>d.likes||0));
-      for (const d of en) {
+      } else if (d.campaign_type === 'awareness') {
         d._score = Math.round(
-          normHigher(d.shares||0, shMin, shMax) * 0.4 +
-          normHigher(d.saves||0, svMin, svMax) * 0.3 +
-          normHigher(d.comments||0, coMin, coMax) * 0.2 +
-          normHigher(d.likes||0, liMin, liMax) * 0.1
+          ((d.reach||0) / 1000 * 2) +
+          Math.max(0, (20 - (d.cpm||0)) * 2) +
+          ((d.video_3s_view_rate||0) * 2)
         );
-        d._boost = d._score >= 70 ? 'boost' : d._score >= 40 ? 'monitor' : 'no boost';
-      }
-    } else {
-      for (const d of en) { d._score = null; d._boost = 'tbd'; }
-    }
-
-    // Traffic ads: CTR 40% + Link Clicks 30% + CPM (lower=better) 20% + Reach 10%
-    const tr = ads.filter(d => d.campaign_type === 'traffic');
-    if (tr.length >= 2) {
-      const ctrMin = Math.min(...tr.map(d=>d.ctr||0)), ctrMax = Math.max(...tr.map(d=>d.ctr||0));
-      const clMin = Math.min(...tr.map(d=>d.link_clicks||0)), clMax = Math.max(...tr.map(d=>d.link_clicks||0));
-      const cpmMin = Math.min(...tr.map(d=>d.cpm||0)), cpmMax = Math.max(...tr.map(d=>d.cpm||0));
-      const rMin = Math.min(...tr.map(d=>d.reach||0)), rMax = Math.max(...tr.map(d=>d.reach||0));
-      for (const d of tr) {
+      } else if (d.campaign_type === 'engagement') {
         d._score = Math.round(
-          normHigher(d.ctr||0, ctrMin, ctrMax) * 0.4 +
-          normHigher(d.link_clicks||0, clMin, clMax) * 0.3 +
-          normLower(d.cpm||0, cpmMin, cpmMax) * 0.2 +
-          normHigher(d.reach||0, rMin, rMax) * 0.1
+          ((d.shares||0) * 5) +
+          ((d.saves||0) * 3) +
+          ((d.comments||0) * 2) +
+          ((d.likes||0) * 0.5)
         );
-        d._boost = d._score >= 70 ? 'boost' : d._score >= 40 ? 'monitor' : 'no boost';
+      } else {
+        d._score = 0;
       }
-    } else if (tr.length === 1) {
-      for (const d of tr) { d._score = null; d._boost = 'tbd'; }
+      // Boost thresholds (absolute)
+      d._boost = d._score >= 70 ? 'boost' : d._score >= 30 ? 'monitor' : 'no boost';
     }
   }
 
@@ -735,7 +714,7 @@
     h += buildSection({
       type: 'awareness', title: 'Awareness Campaigns', sub: 'Entertaining content',
       iconClass: 'icon-awareness', icon: '\u25C9',
-      formula: [['Reach','40%'],['CPM','40%'],['3s View Rate','20%']],
+      formula: [['Reach','\u00D72/K'],['CPM','\u00D72 inv'],['View Rate','\u00D72']],
       chipClass: 'chip-blue', ads: awareness, scoreKey: 'awareness_score',
       metrics: d => [
         ['Reach', fmt(d.reach)], ['CPM', '$'+(d.cpm||0).toFixed(3)],
@@ -751,7 +730,7 @@
     h += buildSection({
       type: 'engagement', title: 'Engagement Campaigns', sub: 'Educational content',
       iconClass: 'icon-engagement', icon: '\u2665',
-      formula: [['Shares','40%'],['Saves','30%'],['Comments','20%'],['Likes','10%']],
+      formula: [['Shares','\u00D75'],['Saves','\u00D73'],['Comments','\u00D72'],['Likes','\u00D70.5']],
       chipClass: 'chip-purple', ads: engagement, scoreKey: 'engagement_score',
       metrics: d => [
         ['Shares', fmt(d.shares)], ['Saves', fmt(d.saves)],
@@ -767,7 +746,7 @@
     h += buildSection({
       type: 'traffic', title: 'Traffic Campaigns', sub: 'Link click driven',
       iconClass: 'icon-traffic', icon: '\u2197',
-      formula: [['CTR','40%'],['Clicks','30%'],['CPM','20%'],['Reach','10%']],
+      formula: [['CTR','\u00D725'],['Clicks','\u00D70.1'],['CPM','\u00D72 inv']],
       chipClass: 'chip-green', ads: traffic, scoreKey: 'traffic_score',
       metrics: d => [
         ['Link Clicks', fmt(d.link_clicks)], ['CTR', (d.ctr||0).toFixed(2)+'%'],
@@ -785,13 +764,16 @@
 
   function buildSection({type, title, sub, iconClass, icon, formula, chipClass, ads, scoreKey, metrics, summaryExtras}) {
     let h = `<div class="section">`;
-    const hasTBD = ads.length > 0 && ads[0]._score === null;
+
+    // Count live vs ended ads
+    const liveCount = ads.filter(d => d.ad_status === 'ACTIVE').length;
+    const endedCount = ads.length - liveCount;
 
     h += `<div class="section-header">
       <div class="section-title">
         <div class="section-icon ${iconClass}">${icon}</div>
         <h2>${title}</h2>
-        <span class="section-count">${ads.length} ad${ads.length!==1?'s':''}</span>
+        <span class="section-count">${ads.length} ad${ads.length!==1?'s':''}${liveCount > 0 ? ' \u2022 ' + liveCount + ' live' : ''}</span>
       </div>
       <span style="font-size:12px; color:var(--text-3)">${sub}</span>
     </div>`;
@@ -802,7 +784,7 @@
       if (i > 0) h += ` <span style="color:var(--text-3)">+</span> `;
       h += `<span class="chip ${chipClass}">${label} ${weight}</span>`;
     });
-    if (hasTBD) h += `<span style="margin-left:auto; font-size:10px; color:var(--orange)">Need 2+ ads to calculate scores</span>`;
+    h += `<span style="margin-left:auto; font-size:10px; color:var(--text-3)">Absolute score \u2022 no cap</span>`;
     h += `</div>`;
 
     if (ads.length === 0) {
@@ -811,19 +793,14 @@
     }
 
     // Summary
-    const scoredAds = ads.filter(d => d._score !== null);
-    const avgScore = scoredAds.length > 0 ? scoredAds.reduce((s,d) => s + d._score, 0) / scoredAds.length : null;
+    const avgScore = ads.length > 0 ? ads.reduce((s,d) => s + (d._score||0), 0) / ads.length : 0;
     const boost = ads.filter(d => d._boost === 'boost').length;
     const monitor = ads.filter(d => d._boost === 'monitor').length;
     const noBoost = ads.filter(d => d._boost === 'no boost').length;
     const extras = summaryExtras(ads);
 
     h += `<div class="summary">`;
-    if (avgScore !== null) {
-      h += `<div class="summary-card"><div class="summary-label">Avg Score</div><div class="summary-value" style="color:${sColor(avgScore)}">${avgScore.toFixed(0)}<span style="font-size:12px;color:var(--text-3)">/100</span></div></div>`;
-    } else {
-      h += `<div class="summary-card"><div class="summary-label">Avg Score</div><div class="summary-value" style="color:var(--text-3)">TBD</div><div class="summary-sub">Need more ads</div></div>`;
-    }
+    h += `<div class="summary-card"><div class="summary-label">Avg Score</div><div class="summary-value" style="color:${sColor(avgScore)}">${avgScore.toFixed(0)}<span style="font-size:12px;color:var(--text-3)"> pts</span></div></div>`;
     h += `<div class="summary-card"><div class="summary-label">Boost</div><div class="summary-value" style="color:var(--green)">${boost}</div></div>`;
     h += `<div class="summary-card"><div class="summary-label">Monitor</div><div class="summary-value" style="color:var(--orange)">${monitor}</div></div>`;
     h += `<div class="summary-card"><div class="summary-label">No Boost</div><div class="summary-value" style="color:var(--red)">${noBoost}</div></div>`;
@@ -833,17 +810,15 @@
     h += `</div>`;
 
     // Ad cards
-    const scoredCards = ads.filter(d => d._score !== null);
-    const topScore = scoredCards.length > 0 ? Math.max(...scoredCards.map(d => d._score)) : null;
+    const topScore = ads.length > 0 ? Math.max(...ads.map(d => d._score || 0)) : 0;
 
     h += `<div class="ad-grid">`;
     ads.forEach((d, i) => {
-      const score = d._score;
-      const isTBD = score === null;
-      const isWinner = !isTBD && score === topScore && ads.length > 1;
+      const score = d._score || 0;
+      const isWinner = score === topScore && ads.length > 1 && score > 0;
       const m = metrics(d);
-      const boostClass = d._boost === 'boost' ? 'boost-green' : d._boost === 'monitor' ? 'boost-orange' : d._boost === 'tbd' ? '' : 'boost-red';
-      const boostLabel = d._boost === 'no boost' ? 'No Boost' : d._boost === 'tbd' ? 'TBD' : cap(d._boost);
+      const boostClass = d._boost === 'boost' ? 'boost-green' : d._boost === 'monitor' ? 'boost-orange' : 'boost-red';
+      const boostLabel = d._boost === 'no boost' ? 'No Boost' : cap(d._boost);
       const platClass = 'plat-' + (d.publisher_platform || 'unknown');
       const platLabel = cap(d.publisher_platform || 'unknown');
       const hasThumb = d.thumbnail_url && d.thumbnail_url.startsWith('http');
@@ -852,6 +827,13 @@
       if (isWinner) h += `<div class="winner-crown">\u2605 Top Performer</div>`;
 
       // Visual
+      // Determine ad status
+      const adStatus = d.ad_status || 'UNKNOWN';
+      const isLive = adStatus === 'ACTIVE';
+      const isPaused = adStatus === 'PAUSED';
+      const statusClass = isLive ? 'status-live' : isPaused ? 'status-paused' : 'status-ended';
+      const statusLabel = isLive ? 'Live' : isPaused ? 'Paused' : 'Ended';
+
       h += `<div class="ad-visual">`;
       if (hasThumb) {
         h += `<img src="${esc(d.thumbnail_url)}" alt="Ad" loading="lazy">`;
@@ -859,11 +841,8 @@
         h += `<div class="ad-visual-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><span>Ad creative</span></div>`;
       }
       h += `<span class="badge-platform ${platClass}">${platLabel}</span>`;
-      if (!isTBD) {
-        h += `<span class="badge-score" style="color:${sColor(score)}"><span>${score}</span><span class="score-label">/100</span></span>`;
-      } else {
-        h += `<span class="badge-score" style="color:var(--text-3)"><span style="font-size:14px">TBD</span></span>`;
-      }
+      h += `<span class="badge-status ${statusClass}">${statusLabel}</span>`;
+      h += `<span class="badge-score" style="color:${sColor(score)}"><span>${score}</span><span class="score-label">pts</span></span>`;
       h += `</div>`;
 
       // Body
@@ -886,12 +865,8 @@
 
       // Footer
       h += `<div class="ad-footer">`;
-      if (d._boost === 'tbd') {
-        h += `<span class="bench-tbd">Score: TBD</span>`;
-      } else {
-        h += `<span class="boost-pill ${boostClass}">${boostLabel}</span>`;
-      }
-      h += `<span class="bench-tbd">Benchmark: TBD</span>`;
+      h += `<span class="boost-pill ${boostClass}">${boostLabel}</span>`;
+      h += `<span class="bench-tbd">${score} pts</span>`;
       h += `</div>`;
 
       h += `</div></div>`; // close ad-body, ad-card
@@ -1264,7 +1239,7 @@
   function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
   function sColor(s) {
     if (s >= 70) return 'var(--green)';
-    if (s >= 40) return 'var(--orange)';
+    if (s >= 30) return 'var(--orange)';
     return 'var(--red)';
   }
 </script>

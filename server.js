@@ -79,101 +79,47 @@ function parseActions(actions = []) {
   return { likes, comments, shares, saves, video3sViews, linkClicks };
 }
 
-// ====== NORMALIZED 0-100 SCORING ======
-// Uses min-max normalization within the group, then applies weights.
-// For "higher is better" metrics: (value - min) / (max - min) * 100
-// For "lower is better" metrics (CPM): (max - value) / (max - min) * 100
-// If all values are the same, score is 50 (neutral).
+// ====== ABSOLUTE SCORING ======
+// Each ad is scored independently using fixed formulas — no comparison to other ads.
+// Scores are uncapped (no maximum). Higher = better.
+//
+// Traffic:   (CTR% × 25) + max(0, (20 − CPM) × 2) + (link_clicks × 0.1)
+// Awareness: (reach / 1000 × 2) + max(0, (20 − CPM) × 2) + (view_rate × 2)
+// Engagement: (shares × 5) + (saves × 3) + (comments × 2) + (likes × 0.5)
 
-function normalizeHigher(value, min, max) {
-  if (max === min) return 50;
-  return ((value - min) / (max - min)) * 100;
-}
-
-function normalizeLower(value, min, max) {
-  if (max === min) return 50;
-  return ((max - value) / (max - min)) * 100;
-}
-
-function computeNormalizedScores(rows) {
-  // Separate by campaign type
-  const awareness = rows.filter(r => r.campaign_type === "awareness");
-  const engagement = rows.filter(r => r.campaign_type === "engagement");
-
-  // Score awareness ads
-  if (awareness.length > 0) {
-    const reachVals = awareness.map(r => r.reach);
-    const cpmVals = awareness.map(r => r.cpm);
-    const vrVals = awareness.map(r => r.video_3s_view_rate);
-
-    const reachMin = Math.min(...reachVals), reachMax = Math.max(...reachVals);
-    const cpmMin = Math.min(...cpmVals), cpmMax = Math.max(...cpmVals);
-    const vrMin = Math.min(...vrVals), vrMax = Math.max(...vrVals);
-
-    for (const row of awareness) {
-      const reachScore = normalizeHigher(row.reach, reachMin, reachMax);
-      const cpmScore = normalizeLower(row.cpm, cpmMin, cpmMax);
-      const vrScore = normalizeHigher(row.video_3s_view_rate, vrMin, vrMax);
-
-      row.awareness_score = round(reachScore * 0.4 + cpmScore * 0.4 + vrScore * 0.2);
+function computeAbsoluteScores(rows) {
+  for (const row of rows) {
+    if (row.campaign_type === "traffic") {
+      row.traffic_score = round(
+        (row.ctr * 25) +
+        Math.max(0, (20 - row.cpm) * 2) +
+        (row.link_clicks * 0.1)
+      );
+      row.awareness_score = null;
       row.engagement_score = null;
-    }
-  }
-
-  // Score engagement ads
-  if (engagement.length > 0) {
-    const shareVals = engagement.map(r => r.shares);
-    const saveVals = engagement.map(r => r.saves);
-    const commentVals = engagement.map(r => r.comments);
-    const likeVals = engagement.map(r => r.likes);
-
-    const shareMin = Math.min(...shareVals), shareMax = Math.max(...shareVals);
-    const saveMin = Math.min(...saveVals), saveMax = Math.max(...saveVals);
-    const commentMin = Math.min(...commentVals), commentMax = Math.max(...commentVals);
-    const likeMin = Math.min(...likeVals), likeMax = Math.max(...likeVals);
-
-    for (const row of engagement) {
-      const shareScore = normalizeHigher(row.shares, shareMin, shareMax);
-      const saveScore = normalizeHigher(row.saves, saveMin, saveMax);
-      const commentScore = normalizeHigher(row.comments, commentMin, commentMax);
-      const likeScore = normalizeHigher(row.likes, likeMin, likeMax);
-
-      row.engagement_score = round(shareScore * 0.4 + saveScore * 0.3 + commentScore * 0.2 + likeScore * 0.1);
+    } else if (row.campaign_type === "awareness") {
+      row.awareness_score = round(
+        (row.reach / 1000 * 2) +
+        Math.max(0, (20 - row.cpm) * 2) +
+        (row.video_3s_view_rate * 2)
+      );
+      row.engagement_score = null;
+      row.traffic_score = null;
+    } else if (row.campaign_type === "engagement") {
+      row.engagement_score = round(
+        (row.shares * 5) +
+        (row.saves * 3) +
+        (row.comments * 2) +
+        (row.likes * 0.5)
+      );
       row.awareness_score = null;
       row.traffic_score = null;
     }
-  }
 
-  // Score traffic ads: CTR 40% + Link Clicks 30% + CPC (inverse CPM as proxy) 20% + Reach 10%
-  const traffic = rows.filter(r => r.campaign_type === "traffic");
-  if (traffic.length > 0) {
-    const ctrVals = traffic.map(r => r.ctr);
-    const clickVals = traffic.map(r => r.link_clicks);
-    const cpmVals = traffic.map(r => r.cpm);
-    const reachVals = traffic.map(r => r.reach);
-
-    const ctrMin = Math.min(...ctrVals), ctrMax = Math.max(...ctrVals);
-    const clickMin = Math.min(...clickVals), clickMax = Math.max(...clickVals);
-    const cpmMin = Math.min(...cpmVals), cpmMax = Math.max(...cpmVals);
-    const reachMin = Math.min(...reachVals), reachMax = Math.max(...reachVals);
-
-    for (const row of traffic) {
-      const ctrScore = normalizeHigher(row.ctr, ctrMin, ctrMax);
-      const clickScore = normalizeHigher(row.link_clicks, clickMin, clickMax);
-      const cpmScore = normalizeLower(row.cpm, cpmMin, cpmMax); // lower CPM = better
-      const reachScore = normalizeHigher(row.reach, reachMin, reachMax);
-
-      row.traffic_score = round(ctrScore * 0.4 + clickScore * 0.3 + cpmScore * 0.2 + reachScore * 0.1);
-      row.awareness_score = null;
-      row.engagement_score = null;
-    }
-  }
-
-  // Boost recommendations based on normalized score (out of 100)
-  for (const row of rows) {
+    // Boost thresholds (absolute)
     const score = row.awareness_score ?? row.engagement_score ?? row.traffic_score ?? 0;
     if (score >= 70) row.boost_recommendation = "boost";
-    else if (score >= 40) row.boost_recommendation = "monitor";
+    else if (score >= 30) row.boost_recommendation = "monitor";
     else row.boost_recommendation = "no boost";
   }
 }
@@ -234,17 +180,18 @@ async function fetchMetaInsights(datePreset = "last_30d") {
   return data.data || [];
 }
 
-// Fetch ad creative thumbnails from Meta — keyed by ad_id for reliable matching
-// Uses two passes: first get ad->creative mapping, then fetch hi-res thumbnails
-async function fetchAdThumbnails() {
-  const map = {}; // ad_id -> thumbnail_url
+// Fetch ad creative thumbnails AND ad status from Meta — keyed by ad_id
+// Returns { thumbnails: { ad_id: url }, statuses: { ad_id: "ACTIVE"|"PAUSED"|... } }
+async function fetchAdDetails() {
+  const thumbnails = {}; // ad_id -> thumbnail_url
+  const statuses = {};   // ad_id -> effective_status
   try {
-    // Step 1: Get ads with their creative IDs
+    // Step 1: Get ads with their creative IDs and effective status
     const adsUrl = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;
     const { data: adsData } = await axios.get(adsUrl, {
       params: {
         access_token: META_ACCESS_TOKEN,
-        fields: "id,name,creative{id}",
+        fields: "id,name,effective_status,creative{id}",
         limit: 100
       }
     });
@@ -252,9 +199,10 @@ async function fetchAdThumbnails() {
     const ads = adsData.data || [];
     console.log(`Found ${ads.length} ads from Meta`);
 
-    // Build creative_id -> [ad_ids] mapping
+    // Build creative_id -> [ad_ids] mapping and collect statuses
     const creativeToAds = {};
     for (const ad of ads) {
+      statuses[ad.id] = ad.effective_status || "UNKNOWN";
       const cid = ad.creative?.id;
       if (cid) {
         if (!creativeToAds[cid]) creativeToAds[cid] = [];
@@ -279,17 +227,16 @@ async function fetchAdThumbnails() {
       const adIds = creativeToAds[creative.id] || [];
       for (const adId of adIds) {
         if (thumbUrl) {
-          map[adId] = thumbUrl;
-          console.log(`Ad ${adId}: hi-res thumb=YES`);
+          thumbnails[adId] = thumbUrl;
         }
       }
     }
 
-    console.log(`Mapped ${Object.keys(map).length} ad thumbnails (hi-res)`);
+    console.log(`Mapped ${Object.keys(thumbnails).length} thumbnails, ${Object.keys(statuses).length} statuses`);
   } catch (err) {
-    console.warn("Could not fetch ad thumbnails:", err.message);
+    console.warn("Could not fetch ad details:", err.message);
   }
-  return map;
+  return { thumbnails, statuses };
 }
 
 // Debug endpoint to check what Meta returns for creatives
@@ -388,12 +335,13 @@ app.get("/capture", async (req, res) => {
   try {
     const snapshotHours = safeNumber(req.query.snapshot_hours || 1);
 
-    // Fetch insights, thumbnails, and campaign objectives in parallel
-    const [rows, thumbnailMap, objectiveMap] = await Promise.all([
+    // Fetch insights, ad details (thumbnails + status), and campaign objectives in parallel
+    const [rows, adDetails, objectiveMap] = await Promise.all([
       fetchMetaInsights(),
-      fetchAdThumbnails(),
+      fetchAdDetails(),
       fetchCampaignObjectives()
     ]);
+    const { thumbnails: thumbnailMap, statuses: statusMap } = adDetails;
 
     const grouped = new Map();
 
@@ -413,6 +361,9 @@ app.get("/capture", async (req, res) => {
       const apiObjective = objectiveMap[campaign_name] || "";
       const campaignType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(campaign_name, ad_name);
 
+      // Determine ad status — ACTIVE means currently live
+      const adStatus = statusMap[item.ad_id] || "UNKNOWN";
+
       const existing = grouped.get(key) || {
         captured_at: new Date().toISOString(),
         snapshot_hours: snapshotHours,
@@ -421,6 +372,7 @@ app.get("/capture", async (req, res) => {
         ad_name,
         ad_id: item.ad_id || null,
         publisher_platform,
+        ad_status: adStatus,
         impressions: safeNumber(item.impressions),
         reach: safeNumber(item.reach),
         cpm: safeNumber(item.cpm),
@@ -464,7 +416,7 @@ app.get("/capture", async (req, res) => {
     }
 
     // Calculate normalized 0-100 scores
-    computeNormalizedScores(cleanRows);
+    computeAbsoluteScores(cleanRows);
 
     // Generate AI insights (non-blocking — capture succeeds even if AI fails)
     await generateAdInsights(cleanRows);
@@ -485,12 +437,13 @@ app.get("/capture", async (req, res) => {
 
 app.get("/live", async (req, res) => {
   try {
-    // Fetch insights, thumbnails, and campaign objectives in parallel
-    const [rows, thumbnailMap, objectiveMap] = await Promise.all([
+    // Fetch insights, ad details (thumbnails + status), and campaign objectives in parallel
+    const [rows, adDetails, objectiveMap] = await Promise.all([
       fetchMetaInsights(),
-      fetchAdThumbnails(),
+      fetchAdDetails(),
       fetchCampaignObjectives()
     ]);
+    const { thumbnails: thumbnailMap, statuses: statusMap } = adDetails;
 
     const grouped = new Map();
 
@@ -506,6 +459,7 @@ app.get("/live", async (req, res) => {
 
       const apiObjective = objectiveMap[campaign_name] || "";
       const campaignType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(campaign_name, ad_name);
+      const adStatus = statusMap[item.ad_id] || "UNKNOWN";
 
       const existing = grouped.get(key) || {
         captured_at: new Date().toISOString(),
@@ -514,6 +468,7 @@ app.get("/live", async (req, res) => {
         ad_name,
         ad_id: item.ad_id || null,
         publisher_platform,
+        ad_status: adStatus,
         impressions: safeNumber(item.impressions),
         reach: safeNumber(item.reach),
         cpm: safeNumber(item.cpm),
@@ -555,7 +510,7 @@ app.get("/live", async (req, res) => {
         row.impressions > 0 ? round((row.link_clicks / row.impressions) * 100) : 0;
     }
 
-    computeNormalizedScores(cleanRows);
+    computeAbsoluteScores(cleanRows);
 
     // Generate AI insights (non-blocking)
     await generateAdInsights(cleanRows);
