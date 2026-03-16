@@ -169,7 +169,7 @@ async function fetchMetaInsights(datePreset = "last_30d") {
   const { data } = await axios.get(url, {
     params: {
       access_token: META_ACCESS_TOKEN,
-      fields: "campaign_name,ad_name,ad_id,impressions,reach,cpm,actions",
+      fields: "campaign_name,campaign_id,adset_name,ad_name,ad_id,impressions,reach,cpm,spend,frequency,actions,cost_per_action_type,date_start,date_stop",
       breakdowns: "publisher_platform",
       action_breakdowns: "action_type",
       level: "ad",
@@ -180,18 +180,19 @@ async function fetchMetaInsights(datePreset = "last_30d") {
   return data.data || [];
 }
 
-// Fetch ad creative thumbnails AND ad status from Meta — keyed by ad_id
-// Returns { thumbnails: { ad_id: url }, statuses: { ad_id: "ACTIVE"|"PAUSED"|... } }
+// Fetch ad creative thumbnails, ad status, and created_time from Meta — keyed by ad_id
+// Returns { thumbnails: { ad_id: url }, statuses: { ad_id: "ACTIVE"|... }, createdTimes: { ad_id: ISO string } }
 async function fetchAdDetails() {
-  const thumbnails = {}; // ad_id -> thumbnail_url
-  const statuses = {};   // ad_id -> effective_status
+  const thumbnails = {};    // ad_id -> thumbnail_url
+  const statuses = {};      // ad_id -> effective_status
+  const createdTimes = {};  // ad_id -> created_time ISO string
   try {
-    // Step 1: Get ads with their creative IDs and effective status
+    // Step 1: Get ads with their creative IDs, effective status, and created_time
     const adsUrl = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;
     const { data: adsData } = await axios.get(adsUrl, {
       params: {
         access_token: META_ACCESS_TOKEN,
-        fields: "id,name,effective_status,creative{id}",
+        fields: "id,name,effective_status,created_time,creative{id}",
         limit: 100
       }
     });
@@ -199,10 +200,11 @@ async function fetchAdDetails() {
     const ads = adsData.data || [];
     console.log(`Found ${ads.length} ads from Meta`);
 
-    // Build creative_id -> [ad_ids] mapping and collect statuses
+    // Build creative_id -> [ad_ids] mapping and collect statuses + created times
     const creativeToAds = {};
     for (const ad of ads) {
       statuses[ad.id] = ad.effective_status || "UNKNOWN";
+      createdTimes[ad.id] = ad.created_time || null;
       const cid = ad.creative?.id;
       if (cid) {
         if (!creativeToAds[cid]) creativeToAds[cid] = [];
@@ -232,11 +234,11 @@ async function fetchAdDetails() {
       }
     }
 
-    console.log(`Mapped ${Object.keys(thumbnails).length} thumbnails, ${Object.keys(statuses).length} statuses`);
+    console.log(`Mapped ${Object.keys(thumbnails).length} thumbnails, ${Object.keys(statuses).length} statuses, ${Object.keys(createdTimes).length} created times`);
   } catch (err) {
     console.warn("Could not fetch ad details:", err.message);
   }
-  return { thumbnails, statuses };
+  return { thumbnails, statuses, createdTimes };
 }
 
 // Debug endpoint to check what Meta returns for creatives
@@ -341,7 +343,7 @@ app.get("/capture", async (req, res) => {
       fetchAdDetails(),
       fetchCampaignObjectives()
     ]);
-    const { thumbnails: thumbnailMap, statuses: statusMap } = adDetails;
+    const { thumbnails: thumbnailMap, statuses: statusMap, createdTimes: createdTimeMap } = adDetails;
 
     const grouped = new Map();
 
@@ -364,18 +366,35 @@ app.get("/capture", async (req, res) => {
       // Determine ad status — ACTIVE means currently live
       const adStatus = statusMap[item.ad_id] || "UNKNOWN";
 
+      // Parse cost_per_action_type for cost_per_click
+      let costPerClick = 0;
+      for (const cpa of (item.cost_per_action_type || [])) {
+        if (["link_click", "outbound_click"].includes(cpa.action_type)) {
+          costPerClick = safeNumber(cpa.value);
+          break;
+        }
+      }
+
       const existing = grouped.get(key) || {
         captured_at: new Date().toISOString(),
         snapshot_hours: snapshotHours,
         campaign_type: campaignType,
         campaign_name,
+        campaign_id: item.campaign_id || null,
+        adset_name: item.adset_name || null,
         ad_name,
         ad_id: item.ad_id || null,
         publisher_platform,
         ad_status: adStatus,
+        ad_created_time: createdTimeMap[item.ad_id] || null,
+        date_start: item.date_start || null,
+        date_stop: item.date_stop || null,
         impressions: safeNumber(item.impressions),
         reach: safeNumber(item.reach),
         cpm: safeNumber(item.cpm),
+        spend: safeNumber(item.spend),
+        frequency: safeNumber(item.frequency),
+        cost_per_click: costPerClick,
         video_3s_views: 0,
         video_3s_view_rate: 0,
         likes: 0,
@@ -401,6 +420,8 @@ app.get("/capture", async (req, res) => {
       existing.impressions = safeNumber(item.impressions);
       existing.reach = safeNumber(item.reach);
       existing.cpm = safeNumber(item.cpm);
+      existing.spend = safeNumber(item.spend);
+      existing.frequency = safeNumber(item.frequency);
 
       grouped.set(key, existing);
     }
@@ -443,7 +464,7 @@ app.get("/live", async (req, res) => {
       fetchAdDetails(),
       fetchCampaignObjectives()
     ]);
-    const { thumbnails: thumbnailMap, statuses: statusMap } = adDetails;
+    const { thumbnails: thumbnailMap, statuses: statusMap, createdTimes: createdTimeMap } = adDetails;
 
     const grouped = new Map();
 
@@ -461,17 +482,34 @@ app.get("/live", async (req, res) => {
       const campaignType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(campaign_name, ad_name);
       const adStatus = statusMap[item.ad_id] || "UNKNOWN";
 
+      // Parse cost_per_action_type for cost_per_click
+      let costPerClick = 0;
+      for (const cpa of (item.cost_per_action_type || [])) {
+        if (["link_click", "outbound_click"].includes(cpa.action_type)) {
+          costPerClick = safeNumber(cpa.value);
+          break;
+        }
+      }
+
       const existing = grouped.get(key) || {
         captured_at: new Date().toISOString(),
         campaign_type: campaignType,
         campaign_name,
+        campaign_id: item.campaign_id || null,
+        adset_name: item.adset_name || null,
         ad_name,
         ad_id: item.ad_id || null,
         publisher_platform,
         ad_status: adStatus,
+        ad_created_time: createdTimeMap[item.ad_id] || null,
+        date_start: item.date_start || null,
+        date_stop: item.date_stop || null,
         impressions: safeNumber(item.impressions),
         reach: safeNumber(item.reach),
         cpm: safeNumber(item.cpm),
+        spend: safeNumber(item.spend),
+        frequency: safeNumber(item.frequency),
+        cost_per_click: costPerClick,
         video_3s_views: 0,
         video_3s_view_rate: 0,
         likes: 0,
@@ -497,6 +535,8 @@ app.get("/live", async (req, res) => {
       existing.impressions = safeNumber(item.impressions);
       existing.reach = safeNumber(item.reach);
       existing.cpm = safeNumber(item.cpm);
+      existing.spend = safeNumber(item.spend);
+      existing.frequency = safeNumber(item.frequency);
 
       grouped.set(key, existing);
     }
@@ -571,6 +611,164 @@ app.get("/snapshot/:hours", async (req, res) => {
     res.status(500).json({
       error: "Snapshot fetch failed",
       details: error.message
+    });
+  }
+});
+
+// ====== SMART CAPTURE ENDPOINT ======
+// Intelligent cron endpoint: captures only ads that NEED a snapshot right now.
+// Logic: ads < 12 hours old → capture every hour, ads >= 12 hours old → capture every 24 hours.
+// Call this from cron-job.org every 1 hour. It will automatically decide which ads to snapshot.
+
+app.get("/smart-capture", async (req, res) => {
+  try {
+    // Step 1: Get all ad details (includes created_time for each ad)
+    const [rows, adDetails, objectiveMap] = await Promise.all([
+      fetchMetaInsights(),
+      fetchAdDetails(),
+      fetchCampaignObjectives()
+    ]);
+    const { thumbnails: thumbnailMap, statuses: statusMap, createdTimes: createdTimeMap } = adDetails;
+
+    // Step 2: Check last capture time per ad from Supabase
+    const { data: recentCaptures, error: rcError } = await supabase
+      .from("ad_snapshots")
+      .select("ad_id, captured_at")
+      .order("captured_at", { ascending: false });
+
+    if (rcError) console.warn("Could not fetch recent captures:", rcError.message);
+
+    // Build map: ad_id -> most recent captured_at
+    const lastCaptureMap = {};
+    for (const row of (recentCaptures || [])) {
+      if (row.ad_id && !lastCaptureMap[row.ad_id]) {
+        lastCaptureMap[row.ad_id] = new Date(row.captured_at);
+      }
+    }
+
+    const now = new Date();
+    const grouped = new Map();
+    let skippedCount = 0;
+
+    for (const item of rows) {
+      const campaign_name = item.campaign_name || "";
+      const ad_name = item.ad_name || "";
+      const publisher_platform = (item.publisher_platform || "").toLowerCase();
+
+      if (!publisher_platform || !["facebook", "instagram"].includes(publisher_platform)) continue;
+
+      const adId = item.ad_id || null;
+
+      // Determine ad age from created_time
+      const adCreatedTime = createdTimeMap[adId] ? new Date(createdTimeMap[adId]) : null;
+      const adAgeHours = adCreatedTime ? (now - adCreatedTime) / (1000 * 60 * 60) : Infinity;
+
+      // Determine required capture interval
+      const captureIntervalHours = adAgeHours < 12 ? 1 : 24;
+
+      // Check if enough time has passed since last capture
+      const lastCapture = lastCaptureMap[adId];
+      if (lastCapture) {
+        const hoursSinceLastCapture = (now - lastCapture) / (1000 * 60 * 60);
+        if (hoursSinceLastCapture < captureIntervalHours * 0.8) {
+          // Not enough time passed — skip this ad (0.8 buffer for timing drift)
+          skippedCount++;
+          continue;
+        }
+      }
+
+      const key = `${campaign_name}__${ad_name}__${publisher_platform}`;
+
+      const apiObjective = objectiveMap[campaign_name] || "";
+      const campaignType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(campaign_name, ad_name);
+      const adStatus = statusMap[adId] || "UNKNOWN";
+
+      let costPerClick = 0;
+      for (const cpa of (item.cost_per_action_type || [])) {
+        if (["link_click", "outbound_click"].includes(cpa.action_type)) {
+          costPerClick = safeNumber(cpa.value);
+          break;
+        }
+      }
+
+      const existing = grouped.get(key) || {
+        captured_at: now.toISOString(),
+        snapshot_hours: round(adAgeHours, 1),
+        campaign_type: campaignType,
+        campaign_name,
+        campaign_id: item.campaign_id || null,
+        adset_name: item.adset_name || null,
+        ad_name,
+        ad_id: adId,
+        publisher_platform,
+        ad_status: adStatus,
+        ad_created_time: createdTimeMap[adId] || null,
+        date_start: item.date_start || null,
+        date_stop: item.date_stop || null,
+        impressions: safeNumber(item.impressions),
+        reach: safeNumber(item.reach),
+        cpm: safeNumber(item.cpm),
+        spend: safeNumber(item.spend),
+        frequency: safeNumber(item.frequency),
+        cost_per_click: costPerClick,
+        video_3s_views: 0,
+        video_3s_view_rate: 0,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        saves: 0,
+        link_clicks: 0,
+        ctr: 0,
+        awareness_score: null,
+        engagement_score: null,
+        traffic_score: null,
+        boost_recommendation: null,
+        thumbnail_url: thumbnailMap[adId] || null
+      };
+
+      const parsed = parseActions(item.actions || []);
+      existing.video_3s_views += parsed.video3sViews;
+      existing.likes += parsed.likes;
+      existing.comments += parsed.comments;
+      existing.shares += parsed.shares;
+      existing.saves += parsed.saves;
+      existing.link_clicks += parsed.linkClicks;
+      existing.impressions = safeNumber(item.impressions);
+      existing.reach = safeNumber(item.reach);
+      existing.cpm = safeNumber(item.cpm);
+      existing.spend = safeNumber(item.spend);
+      existing.frequency = safeNumber(item.frequency);
+
+      grouped.set(key, existing);
+    }
+
+    const cleanRows = [...grouped.values()];
+
+    for (const row of cleanRows) {
+      row.video_3s_view_rate =
+        row.impressions > 0 ? round((row.video_3s_views / row.impressions) * 100) : 0;
+      row.ctr =
+        row.impressions > 0 ? round((row.link_clicks / row.impressions) * 100) : 0;
+    }
+
+    computeAbsoluteScores(cleanRows);
+    await generateAdInsights(cleanRows);
+
+    if (cleanRows.length > 0) {
+      const { error } = await supabase.from("ad_snapshots").insert(cleanRows);
+      if (error) throw error;
+    }
+
+    console.log(`Smart capture: ${cleanRows.length} ads captured, ${skippedCount} skipped (too recent)`);
+    res.json({
+      captured: cleanRows.length,
+      skipped: skippedCount,
+      data: cleanRows
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Smart capture failed",
+      details: error.response?.data || error.message
     });
   }
 });
