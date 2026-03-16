@@ -57,7 +57,7 @@ function objectiveToCampaignType(objective = "") {
   const obj = objective.toUpperCase();
   // Meta's modern OUTCOME_ objectives
   if (obj.includes("AWARENESS") || obj.includes("REACH") || obj.includes("VIDEO_VIEWS") || obj.includes("BRAND_AWARENESS")) return "awareness";
-  if (obj.includes("TRAFFIC") || obj.includes("LINK_CLICKS") || obj.includes("OUTCOME_TRAFFIC")) return "traffic";
+  if (obj.includes("TRAFFIC") || obj.includes("LINK_CLICKS") || obj.includes("OUTCOME_TRAFFIC") || obj.includes("OUTCOME_LEADS")) return "traffic";
   if (obj.includes("ENGAGEMENT") || obj.includes("POST_ENGAGEMENT") || obj.includes("CONVERSIONS") || obj.includes("MESSAGES")) return "engagement";
   return null; // unknown — will fall back to keyword detection
 }
@@ -181,23 +181,36 @@ function computeNormalizedScores(rows) {
 // ====== META API FUNCTIONS ======
 
 // Fetch campaign objectives from Meta — returns map of campaign_name -> objective
+// Fetches ALL campaigns (not just active) so older insights data can be matched too
 async function fetchCampaignObjectives() {
   const objectiveMap = {}; // campaign_name -> objective string
   try {
-    const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/campaigns`;
-    const { data } = await axios.get(url, {
-      params: {
-        access_token: META_ACCESS_TOKEN,
-        fields: "name,objective,status",
-        filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] }]),
-        limit: 100
-      }
-    });
+    let url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/campaigns`;
+    let hasMore = true;
 
-    for (const campaign of (data.data || [])) {
-      objectiveMap[campaign.name] = campaign.objective || "";
-      console.log(`Campaign: "${campaign.name}" → objective: ${campaign.objective}, status: ${campaign.status}`);
+    while (hasMore) {
+      const { data } = await axios.get(url, {
+        params: {
+          access_token: META_ACCESS_TOKEN,
+          fields: "name,objective,status",
+          limit: 200
+        }
+      });
+
+      for (const campaign of (data.data || [])) {
+        objectiveMap[campaign.name] = campaign.objective || "";
+        console.log(`Campaign: "${campaign.name}" → objective: ${campaign.objective}, status: ${campaign.status}`);
+      }
+
+      // Handle pagination — Meta returns campaigns in pages
+      if (data.paging?.next) {
+        url = data.paging.next;
+      } else {
+        hasMore = false;
+      }
     }
+
+    console.log(`Loaded objectives for ${Object.keys(objectiveMap).length} campaigns`);
   } catch (err) {
     console.warn("Failed to fetch campaign objectives (non-blocking):", err.message);
   }
