@@ -311,7 +311,13 @@ app.get("/capture", async (req, res) => {
     for (const item of rows) {
       const campaign_name = item.campaign_name || "";
       const ad_name = item.ad_name || "";
-      const publisher_platform = item.publisher_platform || "unknown";
+      const publisher_platform = (item.publisher_platform || "").toLowerCase();
+
+      // Skip rows without a recognized platform (aggregated/audience_network rows)
+      if (!publisher_platform || !["facebook", "instagram", "messenger", "audience_network"].includes(publisher_platform)) continue;
+      // Also skip audience_network — not useful for dashboard
+      if (publisher_platform === "audience_network" || publisher_platform === "messenger") continue;
+
       const key = `${campaign_name}__${ad_name}__${publisher_platform}`;
 
       const existing = grouped.get(key) || {
