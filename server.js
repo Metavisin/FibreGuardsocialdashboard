@@ -378,6 +378,17 @@ Rules:
 // adCreatedTime = when the ad was created (ISO string)
 
 function determineBudgetStatus(adStatus, totalCampaignSpend, campaignId, adsetName, campaignBudgets, adsetBudgets, adCreatedTime) {
+  // First: trust Meta's effective_status for non-active ads
+  // These statuses mean the ad is definitively NOT delivering
+  const inactiveStatuses = [
+    "PAUSED", "DELETED", "ARCHIVED", "DISAPPROVED",
+    "CAMPAIGN_PAUSED", "ADSET_PAUSED", "PENDING_REVIEW",
+    "PREAPPROVED", "PENDING_BILLING_INFO", "WITH_ISSUES"
+  ];
+  if (inactiveStatuses.includes(adStatus)) {
+    return adStatus; // Return the actual Meta status
+  }
+
   const adsetBudget = adsetBudgets[adsetName];
   const campaignBudget = campaignBudgets[campaignId];
 
@@ -512,6 +523,9 @@ function processInsightRows(rows, { objectiveMap, statusMap, createdTimeMap, thu
       row.impressions > 0 ? round((row.video_3s_views / row.impressions) * 100) : 0;
     row.ctr =
       row.impressions > 0 ? round((row.link_clicks / row.impressions) * 100) : 0;
+    // Calculate CPC from spend / link_clicks (more accurate than cost_per_action_type)
+    row.cost_per_click =
+      row.link_clicks > 0 ? round(row.spend / row.link_clicks, 4) : 0;
   }
 
   computeAbsoluteScores(cleanRows);

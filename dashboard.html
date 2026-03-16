@@ -717,8 +717,10 @@
   function sortAds(arr, sort) {
     arr.sort((a, b) => {
       // Budget-spent ads always go last, NEW ads go first
-      const aPriority = a.ad_status === 'BUDGET_SPENT' ? 2 : a.ad_status === 'NEW' ? 0 : 1;
-      const bPriority = b.ad_status === 'BUDGET_SPENT' ? 2 : b.ad_status === 'NEW' ? 0 : 1;
+      const completedSet = ['BUDGET_SPENT','DELETED','ARCHIVED','DISAPPROVED'];
+      const pausedSet = ['PAUSED','CAMPAIGN_PAUSED','ADSET_PAUSED'];
+      const aPriority = completedSet.includes(a.ad_status) ? 3 : pausedSet.includes(a.ad_status) ? 2 : a.ad_status === 'NEW' ? 0 : 1;
+      const bPriority = completedSet.includes(b.ad_status) ? 3 : pausedSet.includes(b.ad_status) ? 2 : b.ad_status === 'NEW' ? 0 : 1;
       if (aPriority !== bPriority) return aPriority - bPriority;
 
       const sa = a._score ?? -1;
@@ -781,7 +783,7 @@
       metrics: d => [
         ['Link Clicks', fmt(d.link_clicks)], ['CTR', (d.ctr||0).toFixed(2)+'%'],
         ['Reach', fmt(d.reach)], ['CPM', '$'+(d.cpm||0).toFixed(3)],
-        ['Spend', '$'+(d.spend||0).toFixed(2)], ['CPC', '$'+(d.cost_per_click||0).toFixed(2)]
+        ['Spend', '$'+(d.spend||0).toFixed(2)], ['CPC', '$'+((d.link_clicks > 0 ? d.spend / d.link_clicks : d.cost_per_click) || 0).toFixed(3)]
       ],
       summaryExtras: ads => {
         const clicks = ads.reduce((s,d)=>s+(d.link_clicks||0),0);
@@ -797,14 +799,17 @@
   function buildSection({type, title, sub, iconClass, icon, formula, chipClass, ads, scoreKey, metrics, summaryExtras}) {
     let h = `<div class="section">`;
 
-    // Count live vs budget-spent vs new ads
+    // Count live vs completed vs new ads
     const liveCount = ads.filter(d => d.ad_status === 'ACTIVE').length;
-    const budgetSpentCount = ads.filter(d => d.ad_status === 'BUDGET_SPENT').length;
+    const completedStatuses = ['BUDGET_SPENT','DELETED','ARCHIVED','DISAPPROVED'];
+    const budgetSpentCount = ads.filter(d => completedStatuses.includes(d.ad_status)).length;
+    const pausedCount = ads.filter(d => ['PAUSED','CAMPAIGN_PAUSED','ADSET_PAUSED'].includes(d.ad_status)).length;
     const newCount = ads.filter(d => d.ad_status === 'NEW').length;
 
     let countParts = [];
     if (liveCount > 0) countParts.push(liveCount + ' live');
     if (newCount > 0) countParts.push(newCount + ' new');
+    if (pausedCount > 0) countParts.push(pausedCount + ' paused');
     if (budgetSpentCount > 0) countParts.push(budgetSpentCount + ' completed');
 
     h += `<div class="section-header">
@@ -864,11 +869,12 @@
       const isBudgetSpent = adStatus === 'BUDGET_SPENT';
       const isNew = adStatus === 'NEW';
       const isLive = adStatus === 'ACTIVE';
-      const isPaused = adStatus === 'PAUSED';
-      const statusClass = isBudgetSpent ? 'status-budget-spent' : isNew ? 'status-new' : isLive ? 'status-live' : isPaused ? 'status-paused' : 'status-ended';
-      const statusLabel = isBudgetSpent ? 'Budget Spent' : isNew ? 'New' : isLive ? 'Live' : isPaused ? 'Paused' : 'Ended';
+      const isPaused = ['PAUSED','CAMPAIGN_PAUSED','ADSET_PAUSED'].includes(adStatus);
+      const isCompleted = isBudgetSpent || ['DELETED','ARCHIVED','DISAPPROVED'].includes(adStatus);
+      const statusClass = isCompleted ? 'status-budget-spent' : isNew ? 'status-new' : isLive ? 'status-live' : isPaused ? 'status-paused' : 'status-ended';
+      const statusLabel = isBudgetSpent ? 'Completed' : adStatus === 'DELETED' ? 'Deleted' : adStatus === 'ARCHIVED' ? 'Archived' : adStatus === 'DISAPPROVED' ? 'Disapproved' : isNew ? 'New' : isLive ? 'Live' : isPaused ? 'Paused' : adStatus === 'PENDING_REVIEW' ? 'In Review' : adStatus === 'WITH_ISSUES' ? 'Issues' : 'Ended';
 
-      const cardExtraClass = isBudgetSpent ? 'budget-spent' : isNew ? 'ad-new' : '';
+      const cardExtraClass = isCompleted ? 'budget-spent' : isNew ? 'ad-new' : '';
       h += `<div class="ad-card ${isWinner ? 'winner' : ''} ${cardExtraClass}">`;
       if (isWinner && !isBudgetSpent) h += `<div class="winner-crown">\u2605 Top Performer</div>`;
 
