@@ -715,36 +715,45 @@
 
   // ====== ABSOLUTE SCORING (CLIENT-SIDE) ======
   // Each ad scored independently — no comparison to other ads, no cap.
-  // Traffic:    (CTR% × 25) + max(0, (20 − CPM) × 2) + (link_clicks × 0.1)
-  // Awareness:  (reach/1000 × 2) + max(0, (20 − CPM) × 2) + (view_rate × 2)
-  // Engagement: (shares × 5) + (saves × 3) + (comments × 2) + (likes × 0.5)
+  // ====== TARGET-BASED SCORING (Variant B) ======
+  // Score ≈ 100 means on target. Displayed as points.
+  const TARGETS = {
+    awareness: { reach: 400000, cpm: 0.07, viewRate: 15 },
+    engagement: { shareRate: 2.0, saveRate: 3.0, commentRate: 1.5, likeRate: 20.0 },
+    traffic: { ctr: 1.0, cpc: 0.007, lpvr: 0.70, frequency: 2.0 }
+  };
 
   function recalcScores(ads) {
     for (const d of ads) {
-      if (d.campaign_type === 'traffic') {
-        d._score = Math.round(
-          ((d.ctr||0) * 25) +
-          Math.max(0, (20 - (d.cpm||0)) * 2) +
-          ((d.link_clicks||0) * 0.1)
-        );
-      } else if (d.campaign_type === 'awareness') {
-        d._score = Math.round(
-          ((d.reach||0) / 1000 * 2) +
-          Math.max(0, (20 - (d.cpm||0)) * 2) +
-          ((d.video_3s_view_rate||0) * 2)
-        );
+      if (d.campaign_type === 'awareness') {
+        const reachR = TARGETS.awareness.reach > 0 ? (d.reach||0) / TARGETS.awareness.reach : 0;
+        const cpmR = (d.cpm||0) > 0 ? TARGETS.awareness.cpm / d.cpm : 0;
+        const viewR = TARGETS.awareness.viewRate > 0 ? (d.video_3s_view_rate||0) / TARGETS.awareness.viewRate : 0;
+        d._score = Math.round((0.40 * reachR + 0.40 * cpmR + 0.20 * viewR) * 100);
       } else if (d.campaign_type === 'engagement') {
-        d._score = Math.round(
-          ((d.shares||0) * 5) +
-          ((d.saves||0) * 3) +
-          ((d.comments||0) * 2) +
-          ((d.likes||0) * 0.5)
-        );
+        const reach1k = (d.reach||0) > 0 ? d.reach / 1000 : 0.001;
+        const shareRate = (d.shares||0) / reach1k;
+        const saveRate = (d.saves||0) / reach1k;
+        const commentRate = (d.comments||0) / reach1k;
+        const likeRate = (d.likes||0) / reach1k;
+        const raw = 0.40 * (shareRate / TARGETS.engagement.shareRate) +
+                    0.30 * (saveRate / TARGETS.engagement.saveRate) +
+                    0.20 * (commentRate / TARGETS.engagement.commentRate) +
+                    0.10 * (likeRate / TARGETS.engagement.likeRate);
+        d._score = Math.round(raw * 100);
+      } else if (d.campaign_type === 'traffic') {
+        const ctrR = TARGETS.traffic.ctr > 0 ? (d.ctr||0) / TARGETS.traffic.ctr : 0;
+        const cpc = (d.link_clicks||0) > 0 ? (d.spend||0) / d.link_clicks : 0;
+        const cpcR = cpc > 0 ? TARGETS.traffic.cpc / cpc : 0;
+        const lpvr = (d.link_clicks||0) > 0 ? (d.landing_page_views||0) / d.link_clicks : 0;
+        const lpvrR = TARGETS.traffic.lpvr > 0 ? lpvr / TARGETS.traffic.lpvr : 0;
+        const freqR = (d.frequency||0) > 0 ? TARGETS.traffic.frequency / d.frequency : 0;
+        d._score = Math.round((0.40 * ctrR + 0.30 * cpcR + 0.20 * lpvrR + 0.10 * freqR) * 100);
       } else {
         d._score = 0;
       }
-      // Boost thresholds (absolute)
-      d._boost = d._score >= 70 ? 'boost' : d._score >= 30 ? 'monitor' : 'no boost';
+      // Target-based boost thresholds: 100 = on target
+      d._boost = d._score >= 100 ? 'boost' : d._score >= 70 ? 'monitor' : 'no boost';
     }
   }
 
@@ -900,7 +909,7 @@
     h += buildSection({
       type: 'awareness', title: 'Awareness Campaigns', sub: 'Entertaining content',
       iconClass: 'icon-awareness', icon: '\u25C9',
-      formula: [['Reach','\u00D72/K'],['CPM','\u00D72 inv'],['View Rate','\u00D72']],
+      formula: [['Reach','40%'],['CPM','40% inv'],['View Rate','20%']],
       chipClass: 'chip-blue', ads: awareness, scoreKey: 'awareness_score',
       metrics: d => [
         ['Reach', fmt(d.reach)], ['CPM', '$'+(d.cpm||0).toFixed(3)],
@@ -918,7 +927,7 @@
     h += buildSection({
       type: 'engagement', title: 'Engagement Campaigns', sub: 'Educational content',
       iconClass: 'icon-engagement', icon: '\u2665',
-      formula: [['Shares','\u00D75'],['Saves','\u00D73'],['Comments','\u00D72'],['Likes','\u00D70.5']],
+      formula: [['Share Rate','40%'],['Save Rate','30%'],['Comment Rate','20%'],['Like Rate','10%']],
       chipClass: 'chip-purple', ads: engagement, scoreKey: 'engagement_score',
       metrics: d => [
         ['Shares', fmt(d.shares)], ['Saves', fmt(d.saves)],
@@ -936,13 +945,17 @@
     h += buildSection({
       type: 'traffic', title: 'Traffic Campaigns', sub: 'Link click driven',
       iconClass: 'icon-traffic', icon: '\u2197',
-      formula: [['CTR','\u00D725'],['Clicks','\u00D70.1'],['CPM','\u00D72 inv']],
+      formula: [['CTR','40%'],['CPC','30% inv'],['LPVR','20%'],['Frequency','10% inv']],
       chipClass: 'chip-green', ads: traffic, scoreKey: 'traffic_score',
-      metrics: d => [
-        ['Link Clicks', fmt(d.link_clicks)], ['CTR', (d.ctr||0).toFixed(2)+'%'],
-        ['Reach', fmt(d.reach)], ['CPM', '$'+(d.cpm||0).toFixed(3)],
-        ['Spend', '$'+(d.spend||0).toFixed(2)], ['CPC', '$'+((d.link_clicks > 0 ? d.spend / d.link_clicks : d.cost_per_click) || 0).toFixed(3)]
-      ],
+      metrics: d => {
+        const cpc = (d.link_clicks||0) > 0 ? d.spend / d.link_clicks : (d.cost_per_click||0);
+        const lpvr = (d.link_clicks||0) > 0 ? ((d.landing_page_views||0) / d.link_clicks * 100) : 0;
+        return [
+          ['Link Clicks', fmt(d.link_clicks)], ['CTR', (d.ctr||0).toFixed(2)+'%'],
+          ['CPC', '$'+(cpc).toFixed(3)], ['LPVR', lpvr.toFixed(1)+'%'],
+          ['Spend', '$'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
+        ];
+      },
       summaryExtras: ads => {
         const clicks = ads.reduce((s,d)=>s+(d.link_clicks||0),0);
         const avgCtr = ads.reduce((s,d)=>s+(d.ctr||0),0)/ads.length;
@@ -1450,8 +1463,8 @@
   function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
   function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
   function sColor(s) {
-    if (s >= 70) return 'var(--green)';
-    if (s >= 30) return 'var(--orange)';
+    if (s >= 100) return 'var(--green)';
+    if (s >= 70) return 'var(--orange)';
     return 'var(--red)';
   }
   // ====== HISTORICAL PERFORMANCE VIEW ======

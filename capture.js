@@ -59,7 +59,7 @@ function detectCampaignTypeFallback(campaignName = "", adName = "") {
 }
 
 function parseActions(actions = []) {
-  let likes = 0, comments = 0, shares = 0, saves = 0, video3sViews = 0, linkClicks = 0;
+  let likes = 0, comments = 0, shares = 0, saves = 0, video3sViews = 0, linkClicks = 0, landingPageViews = 0;
   for (const action of actions) {
     const type = action.action_type;
     const value = safeNumber(action.value);
@@ -69,28 +69,52 @@ function parseActions(actions = []) {
     if (["share", "post_share"].includes(type)) shares += value;
     if (["save", "post_save"].includes(type)) saves += value;
     if (["link_click", "outbound_click"].includes(type)) linkClicks += value;
+    if (type === "landing_page_view") landingPageViews += value;
   }
-  return { likes, comments, shares, saves, video3sViews, linkClicks };
+  return { likes, comments, shares, saves, video3sViews, linkClicks, landingPageViews };
 }
+
+// ====== TARGET-BASED SCORING (Variant B) ======
+const TARGETS = {
+  awareness: { reach: 400000, cpm: 0.07, viewRate: 15 },
+  engagement: { shareRate: 2.0, saveRate: 3.0, commentRate: 1.5, likeRate: 20.0 },
+  traffic: { ctr: 1.0, cpc: 0.007, lpvr: 0.70, frequency: 2.0 }
+};
 
 function computeAbsoluteScores(rows) {
   for (const row of rows) {
-    if (row.campaign_type === "traffic") {
-      row.traffic_score = round((row.ctr * 25) + Math.max(0, (20 - row.cpm) * 2) + (row.link_clicks * 0.1));
-      row.awareness_score = null;
-      row.engagement_score = null;
-    } else if (row.campaign_type === "awareness") {
-      row.awareness_score = round((row.reach / 1000 * 2) + Math.max(0, (20 - row.cpm) * 2) + (row.video_3s_view_rate * 2));
+    if (row.campaign_type === "awareness") {
+      const reachRatio = TARGETS.awareness.reach > 0 ? row.reach / TARGETS.awareness.reach : 0;
+      const cpmRatio = row.cpm > 0 ? TARGETS.awareness.cpm / row.cpm : 0;
+      const viewRatio = TARGETS.awareness.viewRate > 0 ? row.video_3s_view_rate / TARGETS.awareness.viewRate : 0;
+      row.awareness_score = round((0.40 * reachRatio + 0.40 * cpmRatio + 0.20 * viewRatio) * 100);
       row.engagement_score = null;
       row.traffic_score = null;
     } else if (row.campaign_type === "engagement") {
-      row.engagement_score = round((row.shares * 5) + (row.saves * 3) + (row.comments * 2) + (row.likes * 0.5));
+      const reach1k = row.reach > 0 ? row.reach / 1000 : 0.001;
+      const shareRate = row.shares / reach1k;
+      const saveRate = row.saves / reach1k;
+      const commentRate = row.comments / reach1k;
+      const likeRate = row.likes / reach1k;
+      const raw = 0.40 * (shareRate / TARGETS.engagement.shareRate) +
+                  0.30 * (saveRate / TARGETS.engagement.saveRate) +
+                  0.20 * (commentRate / TARGETS.engagement.commentRate) +
+                  0.10 * (likeRate / TARGETS.engagement.likeRate);
+      row.engagement_score = round(raw * 100);
       row.awareness_score = null;
       row.traffic_score = null;
+    } else if (row.campaign_type === "traffic") {
+      const ctrRatio = TARGETS.traffic.ctr > 0 ? row.ctr / TARGETS.traffic.ctr : 0;
+      const cpcRatio = row.cost_per_click > 0 ? TARGETS.traffic.cpc / row.cost_per_click : 0;
+      const lpvrRatio = TARGETS.traffic.lpvr > 0 ? row.lpvr / TARGETS.traffic.lpvr : 0;
+      const freqRatio = row.frequency > 0 ? TARGETS.traffic.frequency / row.frequency : 0;
+      row.traffic_score = round((0.40 * ctrRatio + 0.30 * cpcRatio + 0.20 * lpvrRatio + 0.10 * freqRatio) * 100);
+      row.awareness_score = null;
+      row.engagement_score = null;
     }
     const score = row.awareness_score ?? row.engagement_score ?? row.traffic_score ?? 0;
-    if (score >= 70) row.boost_recommendation = "boost";
-    else if (score >= 30) row.boost_recommendation = "monitor";
+    if (score >= 100) row.boost_recommendation = "boost";
+    else if (score >= 70) row.boost_recommendation = "monitor";
     else row.boost_recommendation = "no boost";
   }
 }
@@ -401,6 +425,8 @@ async function run() {
       spend,
       frequency: safeNumber(item.frequency),
       cost_per_click: 0,
+      landing_page_views: 0,
+      lpvr: 0,
       video_3s_views: 0,
       video_3s_view_rate: 0,
       likes: 0, comments: 0, shares: 0, saves: 0, link_clicks: 0, ctr: 0,
@@ -416,6 +442,7 @@ async function run() {
     existing.shares += parsed.shares;
     existing.saves += parsed.saves;
     existing.link_clicks += parsed.linkClicks;
+    existing.landing_page_views += parsed.landingPageViews;
     existing.impressions = safeNumber(item.impressions);
     existing.reach = safeNumber(item.reach);
     existing.cpm = safeNumber(item.cpm);
@@ -431,6 +458,7 @@ async function run() {
     row.video_3s_view_rate = row.impressions > 0 ? round((row.video_3s_views / row.impressions) * 100) : 0;
     row.ctr = row.impressions > 0 ? round((row.link_clicks / row.impressions) * 100) : 0;
     row.cost_per_click = row.link_clicks > 0 ? round(row.spend / row.link_clicks, 4) : 0;
+    row.lpvr = row.link_clicks > 0 ? round(row.landing_page_views / row.link_clicks, 4) : 0;
   }
 
   computeAbsoluteScores(cleanRows);
