@@ -1075,7 +1075,7 @@ app.post("/generate-report", async (req, res) => {
     // Build per-ad details
     const adDetails_str = cleanRows.map(ad => {
       const score = ad.awareness_score ?? ad.engagement_score ?? ad.traffic_score ?? 0;
-      return `- "${ad.ad_name}" (${ad.publisher_platform}, ${ad.campaign_type}, ${ad.ad_status}): Score=${score}, Reach=${ad.reach}, Impressions=${ad.impressions}, Spend=$${ad.spend.toFixed(2)}, CPM=$${ad.cpm.toFixed(3)}, CTR=${ad.ctr}%, Clicks=${ad.link_clicks}, Shares=${ad.shares}, Saves=${ad.saves}, Comments=${ad.comments}, Likes=${ad.likes}, CPC=$${ad.cost_per_click}, Frequency=${ad.frequency}`;
+      return `- "${ad.ad_name}" (${ad.publisher_platform}, ${ad.campaign_type}, ${ad.ad_status}): Score=${score}, Reach=${ad.reach}, Impressions=${ad.impressions}, Spend=\u20ac${ad.spend.toFixed(2)}, CPM=\u20ac${ad.cpm.toFixed(3)}, CTR=${ad.ctr}%, Clicks=${ad.link_clicks}, Shares=${ad.shares}, Saves=${ad.saves}, Comments=${ad.comments}, Likes=${ad.likes}, CPC=\u20ac${ad.cost_per_click}, Frequency=${ad.frequency}`;
     }).join('\n');
 
     const prompt = `You are an expert social media advertising analyst for FibreGuard (stain-resistant textile brand). Generate a comprehensive performance report.

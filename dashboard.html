@@ -956,15 +956,15 @@
       formula: [['Reach','40%'],['CPM','40% inv'],['View Rate','20%']],
       chipClass: 'chip-blue', ads: awareness, scoreKey: 'awareness_score',
       metrics: d => [
-        ['Reach', fmt(d.reach)], ['CPM', '$'+(d.cpm||0).toFixed(3)],
+        ['Reach', fmt(d.reach)], ['CPM', '\u20ac'+(d.cpm||0).toFixed(3)],
         ['3s Views', fmt(d.video_3s_views)], ['3s View Rate', (d.video_3s_view_rate||0).toFixed(1)+'%'],
-        ['Spend', '$'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
+        ['Spend', '\u20ac'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
       ],
       summaryExtras: ads => {
         const r = ads.reduce((s,d)=>s+(d.reach||0),0);
         const cpm = ads.reduce((s,d)=>s+(d.cpm||0),0)/ads.length;
         const spend = ads.reduce((s,d)=>s+(d.spend||0),0);
-        return [['Total Reach', fmt(r)], ['Avg CPM', '$'+cpm.toFixed(3)], ['Total Spend', '$'+spend.toFixed(2)]];
+        return [['Total Reach', fmt(r)], ['Avg CPM', '\u20ac'+cpm.toFixed(3)], ['Total Spend', '\u20ac'+spend.toFixed(2)]];
       }
     });
 
@@ -976,13 +976,13 @@
       metrics: d => [
         ['Shares', fmt(d.shares)], ['Saves', fmt(d.saves)],
         ['Comments', fmt(d.comments)], ['Likes', fmt(d.likes)],
-        ['Spend', '$'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
+        ['Spend', '\u20ac'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
       ],
       summaryExtras: ads => {
         const sh = ads.reduce((s,d)=>s+(d.shares||0),0);
         const sv = ads.reduce((s,d)=>s+(d.saves||0),0);
         const spend = ads.reduce((s,d)=>s+(d.spend||0),0);
-        return [['Total Shares', fmt(sh)], ['Total Saves', fmt(sv)], ['Total Spend', '$'+spend.toFixed(2)]];
+        return [['Total Shares', fmt(sh)], ['Total Saves', fmt(sv)], ['Total Spend', '\u20ac'+spend.toFixed(2)]];
       }
     });
 
@@ -996,15 +996,15 @@
         const lpvr = (d.link_clicks||0) > 0 ? ((d.landing_page_views||0) / d.link_clicks * 100) : 0;
         return [
           ['Link Clicks', fmt(d.link_clicks)], ['CTR', (d.ctr||0).toFixed(2)+'%'],
-          ['CPC', '$'+(cpc).toFixed(3)], ['LPVR', lpvr.toFixed(1)+'%'],
-          ['Spend', '$'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
+          ['CPC', '\u20ac'+(cpc).toFixed(3)], ['LPVR', lpvr.toFixed(1)+'%'],
+          ['Spend', '\u20ac'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
         ];
       },
       summaryExtras: ads => {
         const clicks = ads.reduce((s,d)=>s+(d.link_clicks||0),0);
         const avgCtr = ads.reduce((s,d)=>s+(d.ctr||0),0)/ads.length;
         const spend = ads.reduce((s,d)=>s+(d.spend||0),0);
-        return [['Total Clicks', fmt(clicks)], ['Avg CTR', avgCtr.toFixed(2)+'%'], ['Total Spend', '$'+spend.toFixed(2)]];
+        return [['Total Clicks', fmt(clicks)], ['Avg CTR', avgCtr.toFixed(2)+'%'], ['Total Spend', '\u20ac'+spend.toFixed(2)]];
       }
     });
 
@@ -1209,7 +1209,7 @@
           h += `<tr>`;
           h += `<td><div class="compare-plat-cell"><span class="compare-plat-dot ${platDot}"></span>${cap(d.publisher_platform || 'unknown')}</div></td>`;
           h += `<td>${fmt(d.reach)}${d.reach === bestReach && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
-          h += `<td>$${(d.cpm||0).toFixed(3)}${d.cpm === bestCpm && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>\u20ac${(d.cpm||0).toFixed(3)}${d.cpm === bestCpm && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>${(d.video_3s_view_rate||0).toFixed(1)}%${d.video_3s_view_rate === bestVr && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>${fmt(d.impressions)}</td>`;
           h += `<td style="color:${d.awareness_score ? sColor(d.awareness_score) : 'var(--text-3)'}">${d.awareness_score ?? 'N/A'}</td>`;
@@ -1227,7 +1227,7 @@
           h += `<td><div class="compare-plat-cell"><span class="compare-plat-dot ${platDot}"></span>${cap(d.publisher_platform || 'unknown')}</div></td>`;
           h += `<td>${fmt(d.link_clicks)}${d.link_clicks === bestClicks && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>${(d.ctr||0).toFixed(2)}%${d.ctr === bestCtr && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
-          h += `<td>$${(d.cpm||0).toFixed(3)}${d.cpm === bestCpm && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>\u20ac${(d.cpm||0).toFixed(3)}${d.cpm === bestCpm && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>${fmt(d.reach)}</td>`;
           h += `<td style="color:${d.traffic_score ? sColor(d.traffic_score) : 'var(--text-3)'}">${d.traffic_score ?? 'N/A'}</td>`;
           h += `</tr>`;
@@ -1295,7 +1295,7 @@
         totalImpressions: a.reduce((s,d) => s+(d.impressions||0),0),
         stats: [
           ['Total Reach', fmt(a.reduce((s,d)=>s+(d.reach||0),0)), true],
-          ['Avg CPM', '$'+(a.reduce((s,d)=>s+(d.cpm||0),0)/a.length).toFixed(3), false],
+          ['Avg CPM', '\u20ac'+(a.reduce((s,d)=>s+(d.cpm||0),0)/a.length).toFixed(3), false],
           ['Avg View Rate', (a.reduce((s,d)=>s+(d.video_3s_view_rate||0),0)/a.length).toFixed(1)+'%', false]
         ]
       });
@@ -1326,7 +1326,7 @@
         stats: [
           ['Total Clicks', fmt(t.reduce((s,d)=>s+(d.link_clicks||0),0)), true],
           ['Avg CTR', (t.reduce((s,d)=>s+(d.ctr||0),0)/t.length).toFixed(2)+'%', false],
-          ['Avg CPM', '$'+(t.reduce((s,d)=>s+(d.cpm||0),0)/t.length).toFixed(3), false]
+          ['Avg CPM', '\u20ac'+(t.reduce((s,d)=>s+(d.cpm||0),0)/t.length).toFixed(3), false]
         ]
       });
     }
@@ -1519,9 +1519,9 @@
       title: 'Awareness Score',
       subtitle: 'Measures how effectively your ad builds brand visibility.',
       formula: `<strong>Score</strong> = 0.40 &times; min(Reach / ${TARGETS.awareness.reach.toLocaleString()}, 2.0)
-  + 0.40 &times; min($${TARGETS.awareness.cpm} / CPM, 2.0)
+  + 0.40 &times; min(&euro;${TARGETS.awareness.cpm} / CPM, 2.0)
   + 0.20 &times; min(ViewRate / ${TARGETS.awareness.viewRate}%, 2.0)`,
-      targets: `<strong>Targets:</strong> Reach = ${(TARGETS.awareness.reach/1000).toFixed(0)}K, CPM = $${TARGETS.awareness.cpm}, 3s View Rate = ${TARGETS.awareness.viewRate}%`
+      targets: `<strong>Targets:</strong> Reach = ${(TARGETS.awareness.reach/1000).toFixed(0)}K, CPM = &euro;${TARGETS.awareness.cpm}, 3s View Rate = ${TARGETS.awareness.viewRate}%`
     },
     engagement: {
       title: 'Engagement Score',
@@ -1538,10 +1538,10 @@
       title: 'Traffic Score',
       subtitle: 'Measures how efficiently your ad drives quality website traffic.',
       formula: `<strong>Score</strong> = 0.40 &times; min(CTR / ${TARGETS.traffic.ctr}%, 2.0)
-  + 0.30 &times; min($${TARGETS.traffic.cpc} / CPC, 2.0)
+  + 0.30 &times; min(&euro;${TARGETS.traffic.cpc} / CPC, 2.0)
   + 0.20 &times; min(LPVR / ${TARGETS.traffic.lpvr}, 2.0)
   + 0.10 &times; min(${TARGETS.traffic.frequency} / Frequency, 2.0)`,
-      targets: `<strong>Targets:</strong> CTR = ${TARGETS.traffic.ctr}%, CPC = $${TARGETS.traffic.cpc}, LPVR = ${(TARGETS.traffic.lpvr*100).toFixed(0)}%, Frequency = ${TARGETS.traffic.frequency}`
+      targets: `<strong>Targets:</strong> CTR = ${TARGETS.traffic.ctr}%, CPC = &euro;${TARGETS.traffic.cpc}, LPVR = ${(TARGETS.traffic.lpvr*100).toFixed(0)}%, Frequency = ${TARGETS.traffic.frequency}`
     }
   };
 
@@ -1651,7 +1651,7 @@
     h += `<div class="history-kpis">`;
     const kpis = [
       ['Current Reach', fmt(last.reach), reachGrowth > 0 ? '+'+fmt(reachGrowth) : '—', 'var(--blue)'],
-      ['Current Spend', '$'+(last.spend||0).toFixed(2), spendGrowth > 0 ? '+$'+spendGrowth.toFixed(2) : '—', 'var(--text-1)'],
+      ['Current Spend', '\u20ac'+(last.spend||0).toFixed(2), spendGrowth > 0 ? '+\u20ac'+spendGrowth.toFixed(2) : '—', 'var(--text-1)'],
       ['Link Clicks', fmt(last.link_clicks), clicksGrowth > 0 ? '+'+fmt(clicksGrowth) : '—', 'var(--green)'],
       ['Time Tracked', timeSpanH + 'h', snaps.length + ' snapshots', 'var(--orange)']
     ];
@@ -1666,32 +1666,32 @@
 
     // Charts
     h += `<div class="history-charts-grid">`;
-    h += `<div class="history-chart-box"><div class="history-chart-title">Reach Over Time</div><canvas id="histReach" height="180"></canvas></div>`;
-    h += `<div class="history-chart-box"><div class="history-chart-title">Spend Over Time</div><canvas id="histSpend" height="180"></canvas></div>`;
-    h += `<div class="history-chart-box"><div class="history-chart-title">CTR Over Time</div><canvas id="histCTR" height="180"></canvas></div>`;
-    h += `<div class="history-chart-box"><div class="history-chart-title">CPM Over Time</div><canvas id="histCPM" height="180"></canvas></div>`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">Reach Over Time <span style="font-size:10px;color:var(--text-3);font-weight:400;">(CET)</span></div><canvas id="histReach" height="180"></canvas></div>`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">Spend Over Time <span style="font-size:10px;color:var(--text-3);font-weight:400;">(CET)</span></div><canvas id="histSpend" height="180"></canvas></div>`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">CTR Over Time <span style="font-size:10px;color:var(--text-3);font-weight:400;">(CET)</span></div><canvas id="histCTR" height="180"></canvas></div>`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">CPM Over Time <span style="font-size:10px;color:var(--text-3);font-weight:400;">(CET)</span></div><canvas id="histCPM" height="180"></canvas></div>`;
     h += `</div>`;
 
     // Engagement chart (full width)
-    h += `<div class="history-chart-box"><div class="history-chart-title">Engagement Over Time</div><canvas id="histEngagement" height="160"></canvas></div>`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">Engagement Over Time <span style="font-size:10px;color:var(--text-3);font-weight:400;">(CET)</span></div><canvas id="histEngagement" height="160"></canvas></div>`;
 
     // Snapshot table
     h += `<div class="history-chart-box">`;
     h += `<div class="history-chart-title">Snapshot Log</div>`;
     h += `<div style="max-height:240px; overflow-y:auto;">`;
     h += `<table class="history-snapshots-table">`;
-    h += `<tr><th>Time</th><th>Age</th><th>Reach</th><th>Impressions</th><th>Spend</th><th>CTR</th><th>CPM</th><th>Clicks</th><th>Score</th></tr>`;
+    h += `<tr><th>Time (CET)</th><th>Age</th><th>Reach</th><th>Impressions</th><th>Spend</th><th>CTR</th><th>CPM</th><th>Clicks</th><th>Score</th></tr>`;
     snaps.forEach(s => {
       const age = s.snapshot_hours ? s.snapshot_hours + 'h' : '—';
       const score = s.awareness_score ?? s.engagement_score ?? s.traffic_score ?? '—';
       h += `<tr>`;
-      h += `<td>${new Date(s.captured_at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</td>`;
+      h += `<td>${new Date(s.captured_at).toLocaleString('en-GB', {timeZone:'Europe/Amsterdam', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</td>`;
       h += `<td>${age}</td>`;
       h += `<td>${fmt(s.reach)}</td>`;
       h += `<td>${fmt(s.impressions)}</td>`;
-      h += `<td>$${(s.spend||0).toFixed(2)}</td>`;
+      h += `<td>\u20ac${(s.spend||0).toFixed(2)}</td>`;
       h += `<td>${(s.ctr||0).toFixed(2)}%</td>`;
-      h += `<td>$${(s.cpm||0).toFixed(3)}</td>`;
+      h += `<td>\u20ac${(s.cpm||0).toFixed(3)}</td>`;
       h += `<td>${fmt(s.link_clicks)}</td>`;
       h += `<td>${score}</td>`;
       h += `</tr>`;
@@ -1708,7 +1708,7 @@
   function renderHistoryCharts(snaps) {
     const labels = snaps.map(s => {
       const d = new Date(s.captured_at);
-      return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      return d.toLocaleTimeString('en-GB', {timeZone:'Europe/Amsterdam', hour:'2-digit', minute:'2-digit'});
     });
 
     const chartOpts = (color) => ({
@@ -1877,7 +1877,7 @@
     // Overview KPI cards
     h += `<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:24px;">`;
     const kpis = [
-      ['Total Spend', '$' + (ov.totalSpend||0).toFixed(2), 'var(--text-1)'],
+      ['Total Spend', '\u20ac' + (ov.totalSpend||0).toFixed(2), 'var(--text-1)'],
       ['Total Reach', fmt(ov.totalReach||0), 'var(--blue)'],
       ['Avg CTR', (ov.avgCTR||0).toFixed(2) + '%', 'var(--green)'],
       ['Active Ads', ov.activeAds || 0, 'var(--green)']
