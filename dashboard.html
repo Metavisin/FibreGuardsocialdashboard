@@ -450,6 +450,62 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
 
+  /* HISTORY MODAL */
+  .history-overlay {
+    display: none; position: fixed; inset: 0; z-index: 999;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(6px);
+    overflow-y: auto; padding: 40px 20px;
+  }
+  .history-overlay.open { display: flex; justify-content: center; align-items: flex-start; }
+  .history-container {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius); max-width: 860px; width: 100%;
+    padding: 28px; position: relative;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+  }
+  .history-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .history-title { font-size: 18px; font-weight: 700; flex: 1; }
+  .history-close {
+    background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text-2); width: 32px; height: 32px;
+    border-radius: 8px; cursor: pointer; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .history-close:hover { background: var(--bg-3); color: var(--text-1); }
+  .history-empty {
+    text-align: center; padding: 48px; color: var(--text-3);
+  }
+  .history-empty-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.5; }
+  .history-kpis {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px;
+  }
+  .history-kpi {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 12px; text-align: center;
+  }
+  .history-kpi-label { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.3px; }
+  .history-kpi-value { font-size: 18px; font-weight: 800; margin-top: 2px; }
+  .history-kpi-delta { font-size: 10px; font-weight: 600; margin-top: 2px; }
+  .history-chart-box {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 16px; margin-bottom: 16px;
+  }
+  .history-chart-title { font-size: 12px; font-weight: 600; color: var(--text-3); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .history-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .history-snapshots-table {
+    width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 16px;
+  }
+  .history-snapshots-table th {
+    text-align: left; padding: 8px 10px; color: var(--text-3); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.3px; font-size: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .history-snapshots-table td {
+    padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text-2);
+  }
+  .history-snapshots-table tr:hover td { background: var(--bg-2); }
+
   /* REPORT MODAL */
   .report-overlay {
     display: none; position: fixed; inset: 0; z-index: 1000;
@@ -981,7 +1037,7 @@
       const statusLabel = isCompleted ? 'Completed' : isNew ? 'New' : isLive ? 'Live' : isPaused ? 'Paused' : isPending ? 'Pending' : adStatus === 'ISSUES' ? 'Issues' : 'Ended';
 
       const cardExtraClass = (isCompleted || isPaused || adStatus === 'ISSUES') ? 'budget-spent' : isNew ? 'ad-new' : '';
-      h += `<div class="ad-card ${isWinner ? 'winner' : ''} ${cardExtraClass}">`;
+      h += `<div class="ad-card ${isWinner ? 'winner' : ''} ${cardExtraClass}" style="cursor:pointer;" onclick="openHistory('${esc(d.ad_id)}', '${esc(d.publisher_platform)}', '${esc(d.ad_name)}')">`;
       if (isWinner && !isCompleted) h += `<div class="winner-crown">\u2605 Top Performer</div>`;
 
       // Visual
@@ -1403,6 +1459,227 @@
     if (s >= 30) return 'var(--orange)';
     return 'var(--red)';
   }
+  // ====== HISTORICAL PERFORMANCE VIEW ======
+
+  async function openHistory(adId, platform, adName) {
+    const overlay = document.getElementById('historyOverlay');
+    overlay.classList.add('open');
+    overlay.innerHTML = `
+      <div class="history-container">
+        <div class="history-header">
+          <div class="history-title">Loading history...</div>
+          <button class="history-close" onclick="closeHistory()">&times;</button>
+        </div>
+        <div class="report-loading">
+          <div class="spinner"></div>
+          <span style="font-size:13px; color:var(--text-3);">Fetching snapshot data...</span>
+        </div>
+      </div>
+    `;
+
+    try {
+      const res = await fetch(`${SERVER_BASE}/ad-history/${adId}?platform=${platform}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      renderHistory(data, adName, platform);
+    } catch (err) {
+      overlay.innerHTML = `
+        <div class="history-container">
+          <div class="history-header">
+            <div class="history-title">${esc(adName)}</div>
+            <button class="history-close" onclick="closeHistory()">&times;</button>
+          </div>
+          <div class="history-empty">
+            <div class="history-empty-icon">&#9888;</div>
+            <div style="font-size:14px; margin-bottom:6px;">Could not load history</div>
+            <div style="font-size:12px;">${esc(err.message)}</div>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  function closeHistory() {
+    document.getElementById('historyOverlay').classList.remove('open');
+  }
+
+  function renderHistory(data, adName, platform) {
+    const overlay = document.getElementById('historyOverlay');
+    const snaps = data.snapshots || [];
+    const tracking = data.tracking;
+
+    let h = `<div class="history-container">`;
+    h += `<div class="history-header">`;
+    h += `<div><div class="history-title">${esc(adName)}</div>`;
+    h += `<div style="font-size:11px; color:var(--text-3); margin-top:2px;">${cap(platform)} &middot; ${snaps.length} snapshots captured</div></div>`;
+    h += `<button class="history-close" onclick="closeHistory()">&times;</button>`;
+    h += `</div>`;
+
+    if (snaps.length === 0) {
+      h += `<div class="history-empty">`;
+      h += `<div class="history-empty-icon">&#128247;</div>`;
+      h += `<div style="font-size:15px; font-weight:600; margin-bottom:8px;">No snapshots yet</div>`;
+      h += `<div style="font-size:13px; max-width:360px; margin:0 auto;">Snapshots are captured automatically once this ad starts delivering. The first snapshot will appear within 30-60 minutes of the ad going live.</div>`;
+      if (tracking) {
+        h += `<div style="font-size:11px; margin-top:12px; color:var(--text-3);">Tracking since ${new Date(tracking.first_seen_active).toLocaleString()}</div>`;
+      }
+      h += `</div>`;
+      h += `</div>`;
+      overlay.innerHTML = h;
+      return;
+    }
+
+    // Compute deltas from first to last snapshot
+    const first = snaps[0];
+    const last = snaps[snaps.length - 1];
+    const reachGrowth = last.reach - first.reach;
+    const spendGrowth = last.spend - first.spend;
+    const clicksGrowth = last.link_clicks - first.link_clicks;
+    const timeSpanH = ((new Date(last.captured_at) - new Date(first.captured_at)) / 3600000).toFixed(1);
+
+    // KPI cards
+    h += `<div class="history-kpis">`;
+    const kpis = [
+      ['Current Reach', fmt(last.reach), reachGrowth > 0 ? '+'+fmt(reachGrowth) : '—', 'var(--blue)'],
+      ['Current Spend', '$'+(last.spend||0).toFixed(2), spendGrowth > 0 ? '+$'+spendGrowth.toFixed(2) : '—', 'var(--text-1)'],
+      ['Link Clicks', fmt(last.link_clicks), clicksGrowth > 0 ? '+'+fmt(clicksGrowth) : '—', 'var(--green)'],
+      ['Time Tracked', timeSpanH + 'h', snaps.length + ' snapshots', 'var(--orange)']
+    ];
+    kpis.forEach(([label, value, delta, color]) => {
+      h += `<div class="history-kpi">`;
+      h += `<div class="history-kpi-label">${label}</div>`;
+      h += `<div class="history-kpi-value" style="color:${color}">${value}</div>`;
+      h += `<div class="history-kpi-delta" style="color:var(--text-3)">${delta}</div>`;
+      h += `</div>`;
+    });
+    h += `</div>`;
+
+    // Charts
+    h += `<div class="history-charts-grid">`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">Reach Over Time</div><canvas id="histReach" height="180"></canvas></div>`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">Spend Over Time</div><canvas id="histSpend" height="180"></canvas></div>`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">CTR Over Time</div><canvas id="histCTR" height="180"></canvas></div>`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">CPM Over Time</div><canvas id="histCPM" height="180"></canvas></div>`;
+    h += `</div>`;
+
+    // Engagement chart (full width)
+    h += `<div class="history-chart-box"><div class="history-chart-title">Engagement Over Time</div><canvas id="histEngagement" height="160"></canvas></div>`;
+
+    // Snapshot table
+    h += `<div class="history-chart-box">`;
+    h += `<div class="history-chart-title">Snapshot Log</div>`;
+    h += `<div style="max-height:240px; overflow-y:auto;">`;
+    h += `<table class="history-snapshots-table">`;
+    h += `<tr><th>Time</th><th>Age</th><th>Reach</th><th>Impressions</th><th>Spend</th><th>CTR</th><th>CPM</th><th>Clicks</th><th>Score</th></tr>`;
+    snaps.forEach(s => {
+      const age = s.snapshot_hours ? s.snapshot_hours + 'h' : '—';
+      const score = s.awareness_score ?? s.engagement_score ?? s.traffic_score ?? '—';
+      h += `<tr>`;
+      h += `<td>${new Date(s.captured_at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</td>`;
+      h += `<td>${age}</td>`;
+      h += `<td>${fmt(s.reach)}</td>`;
+      h += `<td>${fmt(s.impressions)}</td>`;
+      h += `<td>$${(s.spend||0).toFixed(2)}</td>`;
+      h += `<td>${(s.ctr||0).toFixed(2)}%</td>`;
+      h += `<td>$${(s.cpm||0).toFixed(3)}</td>`;
+      h += `<td>${fmt(s.link_clicks)}</td>`;
+      h += `<td>${score}</td>`;
+      h += `</tr>`;
+    });
+    h += `</table></div></div>`;
+
+    h += `</div>`; // close history-container
+    overlay.innerHTML = h;
+
+    // Render charts
+    setTimeout(() => renderHistoryCharts(snaps), 50);
+  }
+
+  function renderHistoryCharts(snaps) {
+    const labels = snaps.map(s => {
+      const d = new Date(s.captured_at);
+      return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    });
+
+    const chartOpts = (color) => ({
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#1B2235' }, ticks: { color: '#5B6A85', font: { size: 9 }, maxRotation: 45 } },
+        y: { grid: { color: '#1B2235' }, ticks: { color: '#5B6A85', font: { size: 10 } } }
+      },
+      elements: {
+        point: { radius: 3, hoverRadius: 5, backgroundColor: color },
+        line: { tension: 0.3, borderWidth: 2 }
+      }
+    });
+
+    // Reach
+    const reachCtx = document.getElementById('histReach');
+    if (reachCtx) {
+      new Chart(reachCtx, {
+        type: 'line',
+        data: { labels, datasets: [{ data: snaps.map(s => s.reach), borderColor: '#53B7E8', backgroundColor: 'rgba(83,183,232,0.1)', fill: true }] },
+        options: chartOpts('#53B7E8')
+      });
+    }
+
+    // Spend
+    const spendCtx = document.getElementById('histSpend');
+    if (spendCtx) {
+      new Chart(spendCtx, {
+        type: 'line',
+        data: { labels, datasets: [{ data: snaps.map(s => s.spend), borderColor: '#FBBF24', backgroundColor: 'rgba(251,191,36,0.1)', fill: true }] },
+        options: chartOpts('#FBBF24')
+      });
+    }
+
+    // CTR
+    const ctrCtx = document.getElementById('histCTR');
+    if (ctrCtx) {
+      new Chart(ctrCtx, {
+        type: 'line',
+        data: { labels, datasets: [{ data: snaps.map(s => s.ctr), borderColor: '#34D399', backgroundColor: 'rgba(52,211,153,0.1)', fill: true }] },
+        options: chartOpts('#34D399')
+      });
+    }
+
+    // CPM
+    const cpmCtx = document.getElementById('histCPM');
+    if (cpmCtx) {
+      new Chart(cpmCtx, {
+        type: 'line',
+        data: { labels, datasets: [{ data: snaps.map(s => s.cpm), borderColor: '#A855F7', backgroundColor: 'rgba(168,85,247,0.1)', fill: true }] },
+        options: chartOpts('#A855F7')
+      });
+    }
+
+    // Engagement (multi-line)
+    const engCtx = document.getElementById('histEngagement');
+    if (engCtx) {
+      new Chart(engCtx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Likes', data: snaps.map(s => s.likes), borderColor: '#F87171', borderWidth: 2, tension: 0.3, pointRadius: 2 },
+            { label: 'Shares', data: snaps.map(s => s.shares), borderColor: '#53B7E8', borderWidth: 2, tension: 0.3, pointRadius: 2 },
+            { label: 'Saves', data: snaps.map(s => s.saves), borderColor: '#34D399', borderWidth: 2, tension: 0.3, pointRadius: 2 },
+            { label: 'Comments', data: snaps.map(s => s.comments), borderColor: '#FBBF24', borderWidth: 2, tension: 0.3, pointRadius: 2 }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom', labels: { color: '#95A1BA', font: { size: 10 }, padding: 12, usePointStyle: true } } },
+          scales: {
+            x: { grid: { color: '#1B2235' }, ticks: { color: '#5B6A85', font: { size: 9 }, maxRotation: 45 } },
+            y: { grid: { color: '#1B2235' }, ticks: { color: '#5B6A85', font: { size: 10 } } }
+          }
+        }
+      });
+    }
+  }
+
   // ====== REPORT GENERATION ======
   function openReport() {
     const overlay = document.getElementById('reportOverlay');
@@ -1648,6 +1925,9 @@
     }
   }
 </script>
+
+<!-- History Modal Overlay -->
+<div class="history-overlay" id="historyOverlay"></div>
 
 <!-- Report Modal Overlay -->
 <div class="report-overlay" id="reportOverlay"></div>

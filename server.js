@@ -905,6 +905,47 @@ app.get("/dashboard", async (req, res) => {
   }
 });
 
+// ====== AD HISTORY ENDPOINT ======
+
+app.get("/ad-history/:adId", async (req, res) => {
+  try {
+    const adId = req.params.adId;
+    const platform = req.query.platform || null;
+
+    let query = supabase
+      .from("ad_snapshots")
+      .select("*")
+      .eq("ad_id", adId)
+      .order("captured_at", { ascending: true });
+
+    if (platform) {
+      query = query.eq("publisher_platform", platform);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    // Also fetch tracking info
+    const { data: tracking } = await supabase
+      .from("ad_tracking")
+      .select("*")
+      .eq("ad_id", adId)
+      .single();
+
+    res.json({
+      ad_id: adId,
+      snapshots: data || [],
+      tracking: tracking || null,
+      snapshot_count: (data || []).length
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "History fetch failed",
+      details: error.message
+    });
+  }
+});
+
 // ====== REPORT GENERATION ENDPOINT ======
 
 app.post("/generate-report", async (req, res) => {
