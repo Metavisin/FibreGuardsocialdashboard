@@ -75,6 +75,7 @@ function parseActions(actions = []) {
 }
 
 // ====== TARGET-BASED SCORING (Variant B) ======
+// Each component capped at 2.0, max score = 200 pts
 const TARGETS = {
   awareness: { reach: 400000, cpm: 0.07, viewRate: 15 },
   engagement: { shareRate: 2.0, saveRate: 3.0, commentRate: 1.5, likeRate: 20.0 },
@@ -84,9 +85,9 @@ const TARGETS = {
 function computeAbsoluteScores(rows) {
   for (const row of rows) {
     if (row.campaign_type === "awareness") {
-      const reachRatio = TARGETS.awareness.reach > 0 ? row.reach / TARGETS.awareness.reach : 0;
-      const cpmRatio = row.cpm > 0 ? TARGETS.awareness.cpm / row.cpm : 0;
-      const viewRatio = TARGETS.awareness.viewRate > 0 ? row.video_3s_view_rate / TARGETS.awareness.viewRate : 0;
+      const reachRatio = Math.min(TARGETS.awareness.reach > 0 ? row.reach / TARGETS.awareness.reach : 0, 2.0);
+      const cpmRatio = Math.min(row.cpm > 0 ? TARGETS.awareness.cpm / row.cpm : 0, 2.0);
+      const viewRatio = Math.min(TARGETS.awareness.viewRate > 0 ? row.video_3s_view_rate / TARGETS.awareness.viewRate : 0, 2.0);
       row.awareness_score = round((0.40 * reachRatio + 0.40 * cpmRatio + 0.20 * viewRatio) * 100);
       row.engagement_score = null;
       row.traffic_score = null;
@@ -96,18 +97,18 @@ function computeAbsoluteScores(rows) {
       const saveRate = row.saves / reach1k;
       const commentRate = row.comments / reach1k;
       const likeRate = row.likes / reach1k;
-      const raw = 0.40 * (shareRate / TARGETS.engagement.shareRate) +
-                  0.30 * (saveRate / TARGETS.engagement.saveRate) +
-                  0.20 * (commentRate / TARGETS.engagement.commentRate) +
-                  0.10 * (likeRate / TARGETS.engagement.likeRate);
+      const raw = 0.40 * Math.min(shareRate / TARGETS.engagement.shareRate, 2.0) +
+                  0.30 * Math.min(saveRate / TARGETS.engagement.saveRate, 2.0) +
+                  0.20 * Math.min(commentRate / TARGETS.engagement.commentRate, 2.0) +
+                  0.10 * Math.min(likeRate / TARGETS.engagement.likeRate, 2.0);
       row.engagement_score = round(raw * 100);
       row.awareness_score = null;
       row.traffic_score = null;
     } else if (row.campaign_type === "traffic") {
-      const ctrRatio = TARGETS.traffic.ctr > 0 ? row.ctr / TARGETS.traffic.ctr : 0;
-      const cpcRatio = row.cost_per_click > 0 ? TARGETS.traffic.cpc / row.cost_per_click : 0;
-      const lpvrRatio = TARGETS.traffic.lpvr > 0 ? row.lpvr / TARGETS.traffic.lpvr : 0;
-      const freqRatio = row.frequency > 0 ? TARGETS.traffic.frequency / row.frequency : 0;
+      const ctrRatio = Math.min(TARGETS.traffic.ctr > 0 ? row.ctr / TARGETS.traffic.ctr : 0, 2.0);
+      const cpcRatio = Math.min(row.cost_per_click > 0 ? TARGETS.traffic.cpc / row.cost_per_click : 0, 2.0);
+      const lpvrRatio = Math.min(TARGETS.traffic.lpvr > 0 ? row.lpvr / TARGETS.traffic.lpvr : 0, 2.0);
+      const freqRatio = Math.min(row.frequency > 0 ? TARGETS.traffic.frequency / row.frequency : 0, 2.0);
       row.traffic_score = round((0.40 * ctrRatio + 0.30 * cpcRatio + 0.20 * lpvrRatio + 0.10 * freqRatio) * 100);
       row.awareness_score = null;
       row.engagement_score = null;

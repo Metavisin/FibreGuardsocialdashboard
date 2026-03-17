@@ -154,6 +154,50 @@
   .chip-purple { background: var(--purple-10); color: var(--purple); }
   .chip-green { background: var(--green-10); color: var(--green); }
 
+  /* Score info bubble */
+  .score-info-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text-3); font-size: 11px; font-weight: 700;
+    cursor: pointer; margin-left: 8px; transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .score-info-btn:hover { background: var(--text-3); color: var(--bg-0); }
+  .score-info-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.2s; pointer-events: none;
+  }
+  .score-info-overlay.open { opacity: 1; pointer-events: all; }
+  .score-info-modal {
+    background: var(--bg-0); border: 1px solid var(--border);
+    border-radius: var(--radius-md); max-width: 520px; width: 90%;
+    padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    max-height: 80vh; overflow-y: auto;
+  }
+  .score-info-modal h3 { margin: 0 0 6px; font-size: 16px; color: var(--text-1); }
+  .score-info-modal .score-info-sub { font-size: 12px; color: var(--text-3); margin-bottom: 16px; }
+  .score-info-modal .score-formula-block {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-xs); padding: 12px 14px; margin-bottom: 10px;
+    font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px;
+    line-height: 1.7; color: var(--text-2);
+  }
+  .score-info-modal .score-formula-block strong { color: var(--text-1); }
+  .score-info-modal .score-legend {
+    display: flex; gap: 16px; margin-top: 14px; font-size: 12px; flex-wrap: wrap;
+  }
+  .score-info-modal .score-legend span { display: flex; align-items: center; gap: 5px; }
+  .score-info-modal .score-legend .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .score-info-modal .score-targets { margin-top: 12px; font-size: 12px; color: var(--text-3); line-height: 1.6; }
+  .score-info-modal .score-targets strong { color: var(--text-2); }
+  .score-info-close {
+    float: right; background: none; border: none; color: var(--text-3);
+    font-size: 20px; cursor: pointer; padding: 0; line-height: 1;
+  }
+  .score-info-close:hover { color: var(--text-1); }
+
   /* SUMMARY */
   .summary {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -716,7 +760,7 @@
   // ====== ABSOLUTE SCORING (CLIENT-SIDE) ======
   // Each ad scored independently — no comparison to other ads, no cap.
   // ====== TARGET-BASED SCORING (Variant B) ======
-  // Score ≈ 100 means on target. Displayed as points.
+  // Score = 100 means on target. Each component capped at 2.0, max = 200 pts.
   const TARGETS = {
     awareness: { reach: 400000, cpm: 0.07, viewRate: 15 },
     engagement: { shareRate: 2.0, saveRate: 3.0, commentRate: 1.5, likeRate: 20.0 },
@@ -726,9 +770,9 @@
   function recalcScores(ads) {
     for (const d of ads) {
       if (d.campaign_type === 'awareness') {
-        const reachR = TARGETS.awareness.reach > 0 ? (d.reach||0) / TARGETS.awareness.reach : 0;
-        const cpmR = (d.cpm||0) > 0 ? TARGETS.awareness.cpm / d.cpm : 0;
-        const viewR = TARGETS.awareness.viewRate > 0 ? (d.video_3s_view_rate||0) / TARGETS.awareness.viewRate : 0;
+        const reachR = Math.min(TARGETS.awareness.reach > 0 ? (d.reach||0) / TARGETS.awareness.reach : 0, 2.0);
+        const cpmR = Math.min((d.cpm||0) > 0 ? TARGETS.awareness.cpm / d.cpm : 0, 2.0);
+        const viewR = Math.min(TARGETS.awareness.viewRate > 0 ? (d.video_3s_view_rate||0) / TARGETS.awareness.viewRate : 0, 2.0);
         d._score = Math.round((0.40 * reachR + 0.40 * cpmR + 0.20 * viewR) * 100);
       } else if (d.campaign_type === 'engagement') {
         const reach1k = (d.reach||0) > 0 ? d.reach / 1000 : 0.001;
@@ -736,23 +780,23 @@
         const saveRate = (d.saves||0) / reach1k;
         const commentRate = (d.comments||0) / reach1k;
         const likeRate = (d.likes||0) / reach1k;
-        const raw = 0.40 * (shareRate / TARGETS.engagement.shareRate) +
-                    0.30 * (saveRate / TARGETS.engagement.saveRate) +
-                    0.20 * (commentRate / TARGETS.engagement.commentRate) +
-                    0.10 * (likeRate / TARGETS.engagement.likeRate);
+        const raw = 0.40 * Math.min(shareRate / TARGETS.engagement.shareRate, 2.0) +
+                    0.30 * Math.min(saveRate / TARGETS.engagement.saveRate, 2.0) +
+                    0.20 * Math.min(commentRate / TARGETS.engagement.commentRate, 2.0) +
+                    0.10 * Math.min(likeRate / TARGETS.engagement.likeRate, 2.0);
         d._score = Math.round(raw * 100);
       } else if (d.campaign_type === 'traffic') {
-        const ctrR = TARGETS.traffic.ctr > 0 ? (d.ctr||0) / TARGETS.traffic.ctr : 0;
+        const ctrR = Math.min(TARGETS.traffic.ctr > 0 ? (d.ctr||0) / TARGETS.traffic.ctr : 0, 2.0);
         const cpc = (d.link_clicks||0) > 0 ? (d.spend||0) / d.link_clicks : 0;
-        const cpcR = cpc > 0 ? TARGETS.traffic.cpc / cpc : 0;
+        const cpcR = Math.min(cpc > 0 ? TARGETS.traffic.cpc / cpc : 0, 2.0);
         const lpvr = (d.link_clicks||0) > 0 ? (d.landing_page_views||0) / d.link_clicks : 0;
-        const lpvrR = TARGETS.traffic.lpvr > 0 ? lpvr / TARGETS.traffic.lpvr : 0;
-        const freqR = (d.frequency||0) > 0 ? TARGETS.traffic.frequency / d.frequency : 0;
+        const lpvrR = Math.min(TARGETS.traffic.lpvr > 0 ? lpvr / TARGETS.traffic.lpvr : 0, 2.0);
+        const freqR = Math.min((d.frequency||0) > 0 ? TARGETS.traffic.frequency / d.frequency : 0, 2.0);
         d._score = Math.round((0.40 * ctrR + 0.30 * cpcR + 0.20 * lpvrR + 0.10 * freqR) * 100);
       } else {
         d._score = 0;
       }
-      // Target-based boost thresholds: 100 = on target
+      // Target-based boost thresholds: 100 = on target, max 200
       d._boost = d._score >= 100 ? 'boost' : d._score >= 70 ? 'monitor' : 'no boost';
     }
   }
@@ -997,7 +1041,8 @@
       if (i > 0) h += ` <span style="color:var(--text-3)">+</span> `;
       h += `<span class="chip ${chipClass}">${label} ${weight}</span>`;
     });
-    h += `<span style="margin-left:auto; font-size:10px; color:var(--text-3)">Absolute score \u2022 no cap</span>`;
+    h += `<span style="margin-left:auto; font-size:10px; color:var(--text-3)">100 = on target \u2022 max 200</span>`;
+    h += `<span class="score-info-btn" onclick="event.stopPropagation(); showScoreInfo('${type}')" title="How is this score calculated?">?</span>`;
     h += `</div>`;
 
     if (ads.length === 0) {
@@ -1467,6 +1512,63 @@
     if (s >= 70) return 'var(--orange)';
     return 'var(--red)';
   }
+
+  // ====== SCORE INFO POPOVER ======
+  const SCORE_EXPLANATIONS = {
+    awareness: {
+      title: 'Awareness Score',
+      subtitle: 'Measures how effectively your ad builds brand visibility.',
+      formula: `<strong>Score</strong> = 0.40 &times; min(Reach / ${TARGETS.awareness.reach.toLocaleString()}, 2.0)
+  + 0.40 &times; min($${TARGETS.awareness.cpm} / CPM, 2.0)
+  + 0.20 &times; min(ViewRate / ${TARGETS.awareness.viewRate}%, 2.0)`,
+      targets: `<strong>Targets:</strong> Reach = ${(TARGETS.awareness.reach/1000).toFixed(0)}K, CPM = $${TARGETS.awareness.cpm}, 3s View Rate = ${TARGETS.awareness.viewRate}%`
+    },
+    engagement: {
+      title: 'Engagement Score',
+      subtitle: 'Measures how well your ad drives meaningful interactions per 1K reach.',
+      formula: `<strong>Score</strong> = 0.40 &times; min(ShareRate / ${TARGETS.engagement.shareRate}, 2.0)
+  + 0.30 &times; min(SaveRate / ${TARGETS.engagement.saveRate}, 2.0)
+  + 0.20 &times; min(CommentRate / ${TARGETS.engagement.commentRate}, 2.0)
+  + 0.10 &times; min(LikeRate / ${TARGETS.engagement.likeRate}, 2.0)
+
+<strong>Rates</strong> = metric / Reach &times; 1000`,
+      targets: `<strong>Targets (per 1K reach):</strong> Shares = ${TARGETS.engagement.shareRate}, Saves = ${TARGETS.engagement.saveRate}, Comments = ${TARGETS.engagement.commentRate}, Likes = ${TARGETS.engagement.likeRate}`
+    },
+    traffic: {
+      title: 'Traffic Score',
+      subtitle: 'Measures how efficiently your ad drives quality website traffic.',
+      formula: `<strong>Score</strong> = 0.40 &times; min(CTR / ${TARGETS.traffic.ctr}%, 2.0)
+  + 0.30 &times; min($${TARGETS.traffic.cpc} / CPC, 2.0)
+  + 0.20 &times; min(LPVR / ${TARGETS.traffic.lpvr}, 2.0)
+  + 0.10 &times; min(${TARGETS.traffic.frequency} / Frequency, 2.0)`,
+      targets: `<strong>Targets:</strong> CTR = ${TARGETS.traffic.ctr}%, CPC = $${TARGETS.traffic.cpc}, LPVR = ${(TARGETS.traffic.lpvr*100).toFixed(0)}%, Frequency = ${TARGETS.traffic.frequency}`
+    }
+  };
+
+  function showScoreInfo(type) {
+    const info = SCORE_EXPLANATIONS[type];
+    if (!info) return;
+    const overlay = document.getElementById('scoreInfoOverlay');
+    overlay.innerHTML = `<div class="score-info-modal">
+      <button class="score-info-close" onclick="closeScoreInfo()">&times;</button>
+      <h3>${info.title}</h3>
+      <div class="score-info-sub">${info.subtitle}</div>
+      <div class="score-formula-block"><pre style="margin:0;white-space:pre-wrap;font-family:inherit;">${info.formula}</pre></div>
+      <div class="score-targets">${info.targets}</div>
+      <div class="score-legend">
+        <span><span class="dot" style="background:var(--green)"></span> 100+ pts = On/Above Target (Boost)</span>
+        <span><span class="dot" style="background:var(--orange)"></span> 70-99 pts = Near Target (Monitor)</span>
+        <span><span class="dot" style="background:var(--red)"></span> &lt;70 pts = Below Target (No Boost)</span>
+      </div>
+      <div class="score-info-sub" style="margin-top:14px;margin-bottom:0;">Each component is capped at 2.0&times; target, so the maximum possible score is <strong>200 pts</strong>.</div>
+    </div>`;
+    overlay.classList.add('open');
+  }
+
+  function closeScoreInfo() {
+    document.getElementById('scoreInfoOverlay').classList.remove('open');
+  }
+
   // ====== HISTORICAL PERFORMANCE VIEW ======
 
   async function openHistory(adId, platform, adName) {
@@ -1939,6 +2041,9 @@
 
 <!-- Report Modal Overlay -->
 <div class="report-overlay" id="reportOverlay"></div>
+
+<!-- Score Info Overlay -->
+<div class="score-info-overlay" id="scoreInfoOverlay" onclick="if(event.target===this)closeScoreInfo()"></div>
 
 </body>
 </html>
