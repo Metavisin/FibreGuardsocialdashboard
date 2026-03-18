@@ -258,14 +258,13 @@ async function fetchTikTokInsights(token, adIds) {
   } catch (err) { console.warn("TikTok insights failed:", JSON.stringify(err.response?.data || err.message)); return []; }
 }
 
-// Fetch TikTok ad thumbnails from video/image creative info
+// Fetch TikTok ad thumbnails — supports Spark Ads (tiktok_item_id) and standard ads (video_id/image_ids)
 async function fetchTikTokThumbnails(token, ads) {
   const thumbnails = {};
   if (!token || ads.length === 0) return thumbnails;
   try {
-    const videoIds = [];
-    const videoAdMap = {};
-    const imageAdMap = {};
+    const videoIds = [], tiktokItemIds = [];
+    const videoAdMap = {}, itemAdMap = {}, imageAdMap = {};
 
     for (const ad of ads) {
       const adId = String(ad.ad_id);
@@ -273,6 +272,11 @@ async function fetchTikTokThumbnails(token, ads) {
         videoIds.push(ad.video_id);
         if (!videoAdMap[ad.video_id]) videoAdMap[ad.video_id] = [];
         videoAdMap[ad.video_id].push(adId);
+      }
+      if (ad.tiktok_item_id) {
+        tiktokItemIds.push(ad.tiktok_item_id);
+        if (!itemAdMap[ad.tiktok_item_id]) itemAdMap[ad.tiktok_item_id] = [];
+        itemAdMap[ad.tiktok_item_id].push(adId);
       }
       if (ad.image_ids && ad.image_ids.length > 0) {
         for (const imgId of ad.image_ids) {
@@ -283,11 +287,29 @@ async function fetchTikTokThumbnails(token, ads) {
       if (ad.avatar_icon_web_uri && !thumbnails[adId]) thumbnails[adId] = ad.avatar_icon_web_uri;
     }
 
-    const uniqueVideoIds = [...new Set(videoIds)];
-    for (let i = 0; i < uniqueVideoIds.length; i += 60) {
+    // Spark Ads: fetch cover via tt_video/info
+    const identityId = ads.find(a => a.identity_id)?.identity_id;
+    if (identityId && tiktokItemIds.length > 0) {
+      for (const itemId of [...new Set(tiktokItemIds)]) {
+        try {
+          const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/tt_video/info/", {
+            params: { advertiser_id: token.advertiser_id, item_id: itemId },
+            headers: { "Access-Token": token.access_token }
+          });
+          const info = res.data?.data;
+          const coverUrl = info?.cover_image_url || info?.poster_url || info?.item_cover_url || null;
+          if (coverUrl && itemAdMap[itemId]) {
+            for (const adId of itemAdMap[itemId]) thumbnails[adId] = coverUrl;
+          }
+        } catch (e) { /* continue */ }
+      }
+    }
+
+    // Standard video ads
+    for (let i = 0; i < videoIds.length; i += 60) {
       try {
         const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/file/video/ad/info/", {
-          params: { advertiser_id: token.advertiser_id, video_ids: JSON.stringify(uniqueVideoIds.slice(i, i + 60)) },
+          params: { advertiser_id: token.advertiser_id, video_ids: JSON.stringify(videoIds.slice(i, i + 60)) },
           headers: { "Access-Token": token.access_token }
         });
         for (const v of (res.data?.data?.list || [])) {
@@ -296,9 +318,10 @@ async function fetchTikTokThumbnails(token, ads) {
             for (const adId of videoAdMap[v.video_id]) thumbnails[adId] = url;
           }
         }
-      } catch (e) { console.warn(`TikTok video info batch failed: ${e.message}`); }
+      } catch (e) { /* continue */ }
     }
 
+    // Image ads
     const uniqueImageIds = Object.keys(imageAdMap);
     for (let i = 0; i < uniqueImageIds.length; i += 100) {
       try {
@@ -312,7 +335,7 @@ async function fetchTikTokThumbnails(token, ads) {
             for (const adId of imageAdMap[img.image_id]) if (!thumbnails[adId]) thumbnails[adId] = url;
           }
         }
-      } catch (e) { console.warn(`TikTok image info batch failed: ${e.message}`); }
+      } catch (e) { /* continue */ }
     }
 
     console.log(`TikTok: fetched ${Object.keys(thumbnails).length} thumbnails`);
