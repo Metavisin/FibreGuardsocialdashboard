@@ -5,9 +5,9 @@
  * Standalone script that runs via GitHub Actions every 30 minutes.
  * - Polls Meta API for ads with delivery status ACTIVE
  * - Tracks newly active ads in Supabase `ad_tracking` table
- * - Captures hourly snapshots for the first 12 hours of an ad being live
- * - After 12 hours, captures every 6 hours
- * - After 48 hours, captures every 24 hours
+ * - Waits for real data (spend > 0 or impressions > 0) before starting the snapshot clock
+ * - Captures hourly snapshots for the first 12 hours of real data
+ * - After 12 hours, captures every 24 hours
  * - Stores all snapshots in Supabase `ad_snapshots` table
  */
 
@@ -26,11 +26,6 @@ if (!META_ACCESS_TOKEN || !META_AD_ACCOUNT_ID || !SUPABASE_URL || !SUPABASE_SERV
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-// Debug: log masked Supabase URL to verify correct project
-const urlHost = new URL(SUPABASE_URL).hostname.split('.')[0];
-console.log(`🔗 Supabase project: ${urlHost}`);
-console.log(`🔑 Service key starts with: ${SUPABASE_SERVICE_ROLE_KEY.substring(0, 20)}...`);
 
 // ====== UTILITIES ======
 
@@ -696,30 +691,6 @@ async function run() {
   console.log(`FibreGuard Capture — ${new Date().toISOString()}`);
   console.log(`${"=".repeat(60)}\n`);
 
-  // 0. Connectivity test: verify we can write to ad_snapshots
-  const testRow = {
-    captured_at: new Date().toISOString(),
-    ad_id: '__connectivity_test__',
-    ad_name: '__test__',
-    publisher_platform: 'test',
-    campaign_type: 'test',
-    campaign_name: '__test__',
-    hour_label: 'Test',
-    snapshot_hours: 0,
-    spend: 0,
-    impressions: 0
-  };
-  const { data: testResult, error: testError } = await supabase.from("ad_snapshots").insert(testRow).select();
-  if (testError) {
-    console.error(`❌ CONNECTIVITY TEST FAILED — cannot write to ad_snapshots:`, JSON.stringify(testError));
-    console.error(`This likely means the SUPABASE_SERVICE_ROLE_KEY is wrong (possibly the anon key?) or RLS is blocking inserts.`);
-  } else {
-    console.log(`✅ Connectivity test PASSED — inserted test row with id: ${testResult?.[0]?.id}`);
-    // Clean up the test row
-    await supabase.from("ad_snapshots").delete().eq("ad_id", "__connectivity_test__");
-    console.log(`🧹 Cleaned up test row`);
-  }
-
   // 1. Get currently active ads from Meta
   const activeAds = await fetchActiveAds();
   const activeAdIds = activeAds.map(a => a.ad_id);
@@ -874,18 +845,11 @@ async function run() {
 
   // 8. Insert into Supabase
   if (rowsToInsert.length > 0) {
-    console.log(`📝 Inserting ${rowsToInsert.length} Meta rows into ad_snapshots...`);
-    console.log(`📝 Sample row keys: ${Object.keys(rowsToInsert[0]).join(', ')}`);
-    const { data: insertedData, error } = await supabase.from("ad_snapshots").insert(rowsToInsert).select();
+    const { error } = await supabase.from("ad_snapshots").insert(rowsToInsert);
     if (error) {
-      console.error(`❌ Meta insert ERROR:`, JSON.stringify(error));
+      console.error(`❌ Meta insert failed:`, error.message);
       throw error;
     }
-    console.log(`📝 Insert response: ${insertedData ? insertedData.length + ' rows returned' : 'NO DATA RETURNED (insertedData is null)'}`);
-
-    // Verify data actually landed
-    const { count, error: countErr } = await supabase.from("ad_snapshots").select("*", { count: "exact", head: true });
-    console.log(`🔍 Verification: ad_snapshots now has ${count} rows (error: ${countErr ? countErr.message : 'none'})`);
 
     // Update snapshot counts
     const capturedAdIds = [...new Set(rowsToInsert.map(r => r.ad_id))];
@@ -956,12 +920,10 @@ async function run() {
         }
 
         if (ttRowsToInsert.length > 0) {
-          console.log(`📝 Inserting ${ttRowsToInsert.length} TikTok rows into ad_snapshots...`);
-          const { data: ttInsertedData, error: ttErr } = await supabase.from("ad_snapshots").insert(ttRowsToInsert).select();
+          const { error: ttErr } = await supabase.from("ad_snapshots").insert(ttRowsToInsert);
           if (ttErr) {
-            console.warn("TikTok snapshot insert failed:", JSON.stringify(ttErr));
+            console.warn("TikTok snapshot insert failed:", ttErr.message);
           } else {
-            console.log(`📝 TikTok insert response: ${ttInsertedData ? ttInsertedData.length + ' rows returned' : 'NO DATA RETURNED'}`);
             tikTokCaptured = ttRowsToInsert.length;
             for (const adId of [...new Set(ttRowsToInsert.map(r => r.ad_id))]) {
               await incrementSnapshotCount(adId);
