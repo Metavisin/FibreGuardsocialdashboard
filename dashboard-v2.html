@@ -329,20 +329,29 @@
   /* When "Hide Completed" toggle is active, fully hide them */
   .ad-grid.hide-completed .ad-card.budget-spent { display: none; }
 
-  /* Live ad card — distinct green accent */
+  /* Live ad card — bold green glow to stand out */
   .ad-card.ad-live {
-    border-color: rgba(52,211,153,0.30);
-    background: linear-gradient(160deg, rgba(52,211,153,0.05) 0%, var(--glass-bg) 40%);
-    box-shadow: 0 0 20px rgba(52,211,153,0.06), var(--shadow-card);
+    border: 1.5px solid rgba(52,211,153,0.50);
+    background: linear-gradient(160deg, rgba(52,211,153,0.10) 0%, var(--glass-bg) 50%);
+    box-shadow: 0 0 24px rgba(52,211,153,0.12), 0 0 8px rgba(52,211,153,0.08), var(--shadow-card);
   }
   .ad-card.ad-live:hover {
-    border-color: rgba(52,211,153,0.45);
-    box-shadow: 0 0 30px rgba(52,211,153,0.10), var(--shadow-card-hover);
+    border-color: rgba(52,211,153,0.65);
+    box-shadow: 0 0 36px rgba(52,211,153,0.18), 0 0 12px rgba(52,211,153,0.12), var(--shadow-card-hover);
+    transform: translateY(-3px);
   }
   .ad-card.ad-live::before {
     content: '';
-    position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(52,211,153,0.6), transparent);
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, rgba(52,211,153,0.2), rgba(52,211,153,0.9), rgba(52,211,153,0.2));
+    border-radius: 8px 8px 0 0;
+    z-index: 5;
+  }
+  .ad-card.ad-live::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, rgba(52,211,153,0.2), rgba(52,211,153,0.9), rgba(52,211,153,0.2));
+    border-radius: 0 0 8px 8px;
     z-index: 5;
   }
 
@@ -781,8 +790,8 @@
     <div class="filter-group">
       <span class="filter-label">Platform</span>
       <select id="filterPlatform" onchange="applyFilters()">
-        <option value="all">All Platforms</option>
-        <option value="instagram" selected>Instagram</option>
+        <option value="all" selected>All Platforms</option>
+        <option value="instagram">Instagram</option>
         <option value="facebook">Facebook</option>
         <option value="tiktok">TikTok</option>
       </select>
@@ -1646,31 +1655,61 @@
   const SCORE_EXPLANATIONS = {
     awareness: {
       title: 'Awareness Score',
-      subtitle: 'Measures how effectively your ad builds brand visibility.',
-      formula: `<strong>Score</strong> = 0.40 &times; min(Reach / ${TARGETS.awareness.reach.toLocaleString()}, 2.0)
-  + 0.40 &times; min(&euro;${TARGETS.awareness.cpm} / CPM, 2.0)
-  + 0.20 &times; min(ViewRate / ${TARGETS.awareness.viewRate}%, 2.0)`,
-      targets: `<strong>Targets:</strong> Reach = ${(TARGETS.awareness.reach/1000).toFixed(0)}K, CPM = &euro;${TARGETS.awareness.cpm}, Video View Rate = ${TARGETS.awareness.viewRate}%`
+      subtitle: 'How well is your ad getting seen by people?',
+      formula: `We compare your ad's numbers to our targets and give each one a weight:
+
+<strong>Reach (40%)</strong> — How many people saw your ad?
+Target: ${(TARGETS.awareness.reach/1000).toFixed(0)}K people
+
+<strong>Cost per 1K views (40%)</strong> — How cheaply are you reaching people?
+Target: &euro;${TARGETS.awareness.cpm} per 1,000 views
+
+<strong>Video view rate (20%)</strong> — What % of people watched the video?
+Target: ${TARGETS.awareness.viewRate}%
+
+A score of <strong>100</strong> means you're hitting all targets perfectly.
+Higher = better. You can score up to 200 if you're smashing every target.`,
+      targets: ``
     },
     engagement: {
       title: 'Engagement Score',
-      subtitle: 'Measures how well your ad drives meaningful interactions per 1K reach.',
-      formula: `<strong>Score</strong> = 0.40 &times; min(ShareRate / ${TARGETS.engagement.shareRate}, 2.0)
-  + 0.30 &times; min(SaveRate / ${TARGETS.engagement.saveRate}, 2.0)
-  + 0.20 &times; min(CommentRate / ${TARGETS.engagement.commentRate}, 2.0)
-  + 0.10 &times; min(LikeRate / ${TARGETS.engagement.likeRate}, 2.0)
+      subtitle: 'How much are people interacting with your ad?',
+      formula: `We measure how many shares, saves, comments and likes your ad gets per 1,000 people reached:
 
-<strong>Rates</strong> = metric / Reach &times; 1000`,
-      targets: `<strong>Targets (per 1K reach):</strong> Shares = ${TARGETS.engagement.shareRate}, Saves = ${TARGETS.engagement.saveRate}, Comments = ${TARGETS.engagement.commentRate}, Likes = ${TARGETS.engagement.likeRate}`
+<strong>Shares (40%)</strong> — The strongest signal. People sharing your ad with others.
+Target: ${TARGETS.engagement.shareRate} shares per 1K reach
+
+<strong>Saves (30%)</strong> — People saving your ad to come back to later.
+Target: ${TARGETS.engagement.saveRate} saves per 1K reach
+
+<strong>Comments (20%)</strong> — People taking the time to comment.
+Target: ${TARGETS.engagement.commentRate} comments per 1K reach
+
+<strong>Likes (10%)</strong> — The most basic interaction.
+Target: ${TARGETS.engagement.likeRate} likes per 1K reach
+
+A score of <strong>100</strong> means you're hitting all targets perfectly.`,
+      targets: ``
     },
     traffic: {
       title: 'Traffic Score',
-      subtitle: 'Measures how efficiently your ad drives quality website traffic.',
-      formula: `<strong>Score</strong> = 0.40 &times; min(CTR / ${TARGETS.traffic.ctr}%, 2.0)
-  + 0.30 &times; min(&euro;${TARGETS.traffic.cpc} / CPC, 2.0)
-  + 0.20 &times; min(LPVR / ${TARGETS.traffic.lpvr}, 2.0)
-  + 0.10 &times; min(${TARGETS.traffic.frequency} / Frequency, 2.0)`,
-      targets: `<strong>Targets:</strong> CTR = ${TARGETS.traffic.ctr}%, CPC = &euro;${TARGETS.traffic.cpc}, LPVR = ${(TARGETS.traffic.lpvr*100).toFixed(0)}%, Frequency = ${TARGETS.traffic.frequency}`
+      subtitle: 'How well is your ad driving people to the website?',
+      formula: `We measure how effectively your ad gets people to click through and visit:
+
+<strong>Click-through rate (40%)</strong> — What % of people click your ad?
+Target: ${TARGETS.traffic.ctr}%
+
+<strong>Cost per click (30%)</strong> — How much does each click cost?
+Target: &euro;${TARGETS.traffic.cpc} per click
+
+<strong>Landing page view rate (20%)</strong> — Of those who click, how many actually load the page?
+Target: ${(TARGETS.traffic.lpvr*100).toFixed(0)}%
+
+<strong>Frequency (10%)</strong> — Are you showing the ad too many times to the same people?
+Target: max ${TARGETS.traffic.frequency} times per person
+
+A score of <strong>100</strong> means you're hitting all targets perfectly.`,
+      targets: ``
     }
   };
 
@@ -1682,14 +1721,13 @@
       <button class="score-info-close" onclick="closeScoreInfo()">&times;</button>
       <h3>${info.title}</h3>
       <div class="score-info-sub">${info.subtitle}</div>
-      <div class="score-formula-block"><pre style="margin:0;white-space:pre-wrap;font-family:inherit;">${info.formula}</pre></div>
-      <div class="score-targets">${info.targets}</div>
-      <div class="score-legend">
-        <span><span class="dot" style="background:var(--green)"></span> 100+ pts = On/Above Target (Boost)</span>
-        <span><span class="dot" style="background:var(--orange)"></span> 70-99 pts = Near Target (Monitor)</span>
-        <span><span class="dot" style="background:var(--red)"></span> &lt;70 pts = Below Target (No Boost)</span>
+      <div class="score-formula-block"><pre style="margin:0;white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.7;">${info.formula}</pre></div>
+      ${info.targets ? `<div class="score-targets">${info.targets}</div>` : ''}
+      <div class="score-legend" style="margin-top:16px;">
+        <span><span class="dot" style="background:var(--green)"></span> 100+ = Great, boost this ad</span>
+        <span><span class="dot" style="background:var(--orange)"></span> 70–99 = Getting there, keep watching</span>
+        <span><span class="dot" style="background:var(--red)"></span> Below 70 = Underperforming</span>
       </div>
-      <div class="score-info-sub" style="margin-top:14px;margin-bottom:0;">Each component is capped at 2.0&times; target, so the maximum possible score is <strong>200 pts</strong>.</div>
     </div>`;
     overlay.classList.add('open');
   }
