@@ -84,6 +84,10 @@ const PORT = process.env.PORT || 3000;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+// Migration helper — adds hour_label column if missing
+// Call GET /migrate once to add the column, then it's permanent
+
+
 // ====== UTILITY FUNCTIONS ======
 
 function safeNumber(value) {
@@ -93,6 +97,19 @@ function safeNumber(value) {
 
 function round(value, decimals = 2) {
   return Number(safeNumber(value).toFixed(decimals));
+}
+
+function hoursAgo(dateStr) {
+  return (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60);
+}
+
+function computeHourLabel(hours) {
+  const ordinals = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth",
+    "Seventh", "Eighth", "Ninth", "Tenth", "Eleventh", "Twelfth"];
+  if (hours <= 0) return "Launch";
+  if (hours <= 12) return ordinals[Math.max(0, Math.ceil(hours) - 1)] + " hour";
+  const days = Math.ceil(hours / 24);
+  return (days * 24) + " hours";
 }
 
 // Fallback keyword detection (used only when API objective is unavailable)
@@ -942,8 +959,11 @@ function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignSta
 
     console.log(`TikTok ad ${adId}: campaign="${adInfo.campaign_name}", obj="${adInfo.objective}", type=${campaignType}, status=${adStatus}, spend=${spend}, reach=${reach}`);
 
+    const ttAgeH = adInfo.created_time ? Math.round(hoursAgo(adInfo.created_time)) : 0;
     rows.push({
       captured_at: new Date().toISOString(),
+      snapshot_hours: ttAgeH,
+      hour_label: computeHourLabel(ttAgeH),
       campaign_type: campaignType,
       campaign_name: adInfo.campaign_name || "",
       campaign_id: adInfo.campaign_id || null,
@@ -1026,9 +1046,11 @@ function processInsightRows(rows, { objectiveMap, statusMap, createdTimeMap, thu
       }
     }
 
+    const adAgeH = adCreatedTime ? Math.round(hoursAgo(adCreatedTime)) : 0;
     const existing = grouped.get(key) || {
       captured_at: new Date().toISOString(),
-      ...(snapshotHours !== undefined ? { snapshot_hours: snapshotHours } : {}),
+      ...(snapshotHours !== undefined ? { snapshot_hours: snapshotHours } : { snapshot_hours: adAgeH }),
+      hour_label: computeHourLabel(adAgeH),
       campaign_type: campaignType,
       campaign_name,
       campaign_id: item.campaign_id || null,
@@ -1520,6 +1542,7 @@ app.get("/smart-capture", async (req, res) => {
       const existing = grouped.get(key) || {
         captured_at: now.toISOString(),
         snapshot_hours: Math.round(adAgeHours),
+        hour_label: computeHourLabel(Math.round(adAgeHours)),
         campaign_type: campaignType,
         campaign_name,
         campaign_id: item.campaign_id || null,
@@ -1880,6 +1903,39 @@ Rules:
 // Other devices hit this first to ensure the server is ready before fetching /live.
 app.get("/health", (req, res) => {
   res.json({ ok: true, uptime: process.uptime(), ts: new Date().toISOString() });
+});
+
+// One-time migration: add hour_label column
+app.get("/migrate", async (req, res) => {
+  try {
+    const resp = await axios.post(
+      `${SUPABASE_URL}/rest/v1/rpc/`,
+      {},
+      { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` } }
+    );
+    // Fallback: just try a direct SQL via the Supabase management API
+    // The simplest approach is to insert a test row with hour_label
+    // If it fails, the column doesn't exist yet
+    const testInsert = await supabase.from("ad_snapshots").insert({
+      captured_at: new Date().toISOString(),
+      ad_id: "__migration_test__",
+      ad_name: "__test__",
+      publisher_platform: "test",
+      campaign_type: "test",
+      campaign_name: "__test__",
+      hour_label: "Test",
+      spend: 0, impressions: 0
+    });
+    if (testInsert.error && testInsert.error.message.includes("hour_label")) {
+      res.json({ ok: false, message: "Column 'hour_label' does not exist. Please add it manually in Supabase dashboard: ALTER TABLE ad_snapshots ADD COLUMN hour_label TEXT;", error: testInsert.error.message });
+    } else {
+      // Clean up test row
+      await supabase.from("ad_snapshots").delete().eq("ad_id", "__migration_test__");
+      res.json({ ok: true, message: "hour_label column exists and is working" });
+    }
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
 });
 
 app.listen(PORT, () => {

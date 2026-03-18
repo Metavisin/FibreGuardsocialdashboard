@@ -42,6 +42,16 @@ function hoursAgo(dateStr) {
   return (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60);
 }
 
+function computeHourLabel(hours) {
+  const ordinals = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth",
+    "Seventh", "Eighth", "Ninth", "Tenth", "Eleventh", "Twelfth"];
+  if (hours <= 0) return "Launch";
+  if (hours <= 12) return ordinals[Math.max(0, Math.ceil(hours) - 1)] + " hour";
+  // After 12 hours, show in 24h blocks
+  const days = Math.ceil(hours / 24);
+  return (days * 24) + " hours";
+}
+
 function objectiveToCampaignType(objective = "") {
   const obj = objective.toUpperCase();
   if (obj.includes("AWARENESS") || obj.includes("REACH") || obj.includes("VIDEO_VIEWS") || obj.includes("BRAND_AWARENESS")) return "awareness";
@@ -426,6 +436,7 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
     rows.push({
       captured_at: new Date().toISOString(),
       snapshot_hours: adAgeHours,
+      hour_label: computeHourLabel(adAgeHours),
       campaign_type: campaignType,
       campaign_name: info.campaign_name || "",
       campaign_id: info.campaign_id || null,
@@ -745,6 +756,7 @@ async function run() {
     const existing = grouped.get(key) || {
       captured_at: new Date().toISOString(),
       snapshot_hours: adAgeHours,
+      hour_label: computeHourLabel(adAgeHours),
       campaign_type: campaignType,
       campaign_name: item.campaign_name,
       campaign_id: item.campaign_id || null,

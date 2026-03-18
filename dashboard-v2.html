@@ -329,6 +329,23 @@
   /* When "Hide Completed" toggle is active, fully hide them */
   .ad-grid.hide-completed .ad-card.budget-spent { display: none; }
 
+  /* Live ad card — distinct green accent */
+  .ad-card.ad-live {
+    border-color: rgba(52,211,153,0.30);
+    background: linear-gradient(160deg, rgba(52,211,153,0.05) 0%, var(--glass-bg) 40%);
+    box-shadow: 0 0 20px rgba(52,211,153,0.06), var(--shadow-card);
+  }
+  .ad-card.ad-live:hover {
+    border-color: rgba(52,211,153,0.45);
+    box-shadow: 0 0 30px rgba(52,211,153,0.10), var(--shadow-card-hover);
+  }
+  .ad-card.ad-live::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(52,211,153,0.6), transparent);
+    z-index: 5;
+  }
+
   /* New/pending ad card */
   .ad-card.ad-new {
     border: 1px dashed rgba(96,165,250,0.4);
@@ -1195,7 +1212,7 @@
       const statusClass = isCompleted ? 'status-budget-spent' : isNew ? 'status-new' : isLive ? 'status-live' : isPaused ? 'status-paused' : isPending ? 'status-new' : 'status-ended';
       const statusLabel = isCompleted ? 'Completed' : isNew ? 'New' : isLive ? 'Live' : isPaused ? 'Paused' : isPending ? 'Pending' : adStatus === 'ISSUES' ? 'Issues' : 'Ended';
 
-      const cardExtraClass = (isCompleted || isPaused || adStatus === 'ISSUES') ? 'budget-spent' : isNew ? 'ad-new' : '';
+      const cardExtraClass = (isCompleted || isPaused || adStatus === 'ISSUES') ? 'budget-spent' : isNew ? 'ad-new' : isLive ? 'ad-live' : '';
       h += `<div class="ad-card ${isWinner ? 'winner' : ''} ${cardExtraClass}" style="cursor:pointer;" onclick="openHistory('${esc(d.ad_id)}', '${esc(d.publisher_platform)}', '${esc(d.ad_name)}')">`;
       if (isWinner && !isCompleted) h += `<div class="winner-crown">\u2605 Top Performer</div>`;
 
@@ -1613,6 +1630,12 @@
   }
   function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
   function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+  function clientHourLabel(hours) {
+    const ord = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth","Eleventh","Twelfth"];
+    if (!hours || hours <= 0) return "Launch";
+    if (hours <= 12) return ord[Math.max(0, Math.ceil(hours) - 1)] + " hour";
+    return (Math.ceil(hours / 24) * 24) + " hours";
+  }
   function sColor(s) {
     if (s >= 100) return 'var(--green)';
     if (s >= 70) return 'var(--orange)';
@@ -1784,15 +1807,15 @@
     // Snapshot table
     h += `<div class="history-chart-box">`;
     h += `<div class="history-chart-title">Snapshot Log</div>`;
-    h += `<div style="max-height:240px; overflow-y:auto;">`;
+    h += `<div style="max-height:280px; overflow-y:auto;">`;
     h += `<table class="history-snapshots-table">`;
-    h += `<tr><th>Time (CET)</th><th>Age</th><th>Reach</th><th>Impressions</th><th>Spend</th><th>CTR</th><th>CPM</th><th>Clicks</th><th>Score</th></tr>`;
+    h += `<tr><th>Period</th><th>Reach</th><th>Impressions</th><th>Spend</th><th>CTR</th><th>CPM</th><th>Clicks</th><th>Score</th></tr>`;
     snaps.forEach(s => {
-      const age = s.snapshot_hours ? s.snapshot_hours + 'h' : '—';
+      // Use stored hour_label or compute from snapshot_hours
+      const label = s.hour_label || clientHourLabel(s.snapshot_hours);
       const score = s.awareness_score ?? s.engagement_score ?? s.traffic_score ?? '—';
       h += `<tr>`;
-      h += `<td>${new Date(s.captured_at).toLocaleString('en-GB', {timeZone:'Europe/Amsterdam', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</td>`;
-      h += `<td>${age}</td>`;
+      h += `<td style="font-weight:600; color:var(--text-1);">${label}</td>`;
       h += `<td>${fmt(s.reach)}</td>`;
       h += `<td>${fmt(s.impressions)}</td>`;
       h += `<td>\u20ac${(s.spend||0).toFixed(2)}</td>`;
@@ -1812,10 +1835,7 @@
   }
 
   function renderHistoryCharts(snaps) {
-    const labels = snaps.map(s => {
-      const d = new Date(s.captured_at);
-      return d.toLocaleTimeString('en-GB', {timeZone:'Europe/Amsterdam', hour:'2-digit', minute:'2-digit'});
-    });
+    const labels = snaps.map(s => s.hour_label || clientHourLabel(s.snapshot_hours));
 
     const chartOpts = (color) => ({
       responsive: true,
