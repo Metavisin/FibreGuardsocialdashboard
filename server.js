@@ -1513,15 +1513,19 @@ app.get("/smart-capture", async (req, res) => {
         continue;
       }
 
-      // Determine ad age from created_time
-      const adCreatedDate = adCreatedTime ? new Date(adCreatedTime) : null;
-      const adAgeHours = adCreatedDate ? (now - adCreatedDate) / (1000 * 60 * 60) : Infinity;
-      const captureIntervalHours = 1; // Capture every hour for all active ads
+      // Skip ads with zero spend AND zero impressions — no real data yet
+      const impressions = safeNumber(item.impressions);
+      if (spend === 0 && impressions === 0) {
+        skippedCount++;
+        continue;
+      }
 
+      // Throttle: capture every hour for first 12h of data, then every 24h
       const lastCapture = lastCaptureMap[adId];
       if (lastCapture) {
         const hoursSinceLastCapture = (now - lastCapture) / (1000 * 60 * 60);
-        if (hoursSinceLastCapture < captureIntervalHours * 0.8) {
+        // For smart-capture (manual trigger), use 1h interval
+        if (hoursSinceLastCapture < 0.8) {
           skippedCount++;
           continue;
         }
@@ -1905,40 +1909,37 @@ app.get("/health", (req, res) => {
   res.json({ ok: true, uptime: process.uptime(), ts: new Date().toISOString() });
 });
 
-// One-time migration: test if hour_label column exists
+// Migration check: test required columns exist
 app.get("/migrate", async (req, res) => {
   try {
-    // Try inserting a test row with hour_label to see if the column exists
-    const { error: insertErr } = await supabase.from("ad_snapshots").insert({
-      captured_at: new Date().toISOString(),
-      ad_id: "__migration_test__",
-      ad_name: "__test__",
-      publisher_platform: "test",
-      campaign_type: "test",
-      campaign_name: "__test__",
-      hour_label: "Test",
-      snapshot_hours: 0,
-      spend: 0, impressions: 0
-    });
-    if (insertErr) {
-      const msg = insertErr.message || "";
-      // Check specifically if the error is about the hour_label column
-      if (msg.includes("hour_label")) {
-        res.json({ ok: false, action_needed: "Add column in Supabase SQL editor: ALTER TABLE ad_snapshots ADD COLUMN hour_label TEXT;", error: msg });
-      } else {
-        // Some other error — but column might exist, try a select instead
-        const { data, error: selErr } = await supabase.from("ad_snapshots").select("hour_label").limit(1);
-        if (selErr && (selErr.message || "").includes("hour_label")) {
-          res.json({ ok: false, action_needed: "Add column in Supabase SQL editor: ALTER TABLE ad_snapshots ADD COLUMN hour_label TEXT;", error: selErr.message });
-        } else {
-          res.json({ ok: true, message: "hour_label column exists and is working!", note: "insert test had unrelated error: " + msg });
-        }
-      }
+    const checks = {};
+
+    // Check hour_label on ad_snapshots
+    const { data: snapTest, error: snapErr } = await supabase.from("ad_snapshots").select("hour_label").limit(1);
+    if (snapErr && (snapErr.message || "").includes("hour_label")) {
+      checks.hour_label = { ok: false, action: "ALTER TABLE ad_snapshots ADD COLUMN hour_label TEXT;" };
     } else {
-      // Success — clean up test row
-      await supabase.from("ad_snapshots").delete().eq("ad_id", "__migration_test__");
-      res.json({ ok: true, message: "hour_label column exists and is working!" });
+      checks.hour_label = { ok: true };
     }
+
+    // Check first_data_at on ad_tracking
+    const { data: trackTest, error: trackErr } = await supabase.from("ad_tracking").select("first_data_at").limit(1);
+    if (trackErr && (trackErr.message || "").includes("first_data_at")) {
+      checks.first_data_at = { ok: false, action: "ALTER TABLE ad_tracking ADD COLUMN first_data_at TIMESTAMPTZ;" };
+    } else {
+      checks.first_data_at = { ok: true };
+    }
+
+    const allOk = Object.values(checks).every(c => c.ok);
+    const actions = Object.entries(checks)
+      .filter(([, c]) => !c.ok)
+      .map(([name, c]) => `${name}: ${c.action}`);
+
+    res.json({
+      ok: allOk,
+      checks,
+      ...(actions.length > 0 ? { action_needed: actions.join("\n") } : { message: "All columns exist and are working!" })
+    });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }

@@ -619,11 +619,32 @@ async function upsertTracking(adId, adName, campaignName) {
       ad_name: adName,
       campaign_name: campaignName,
       first_seen_active: new Date().toISOString(),
+      first_data_at: null, // Set later when first real data appears
       is_active: true,
       snapshot_count: 0
     });
     console.log(`🆕 New active ad detected: "${adName}" (${adId})`);
   }
+}
+
+async function setFirstDataAt(adId) {
+  // Only set first_data_at once — when real data first appears
+  const { data } = await supabase
+    .from("ad_tracking")
+    .select("first_data_at")
+    .eq("ad_id", adId)
+    .single();
+
+  if (data && !data.first_data_at) {
+    const now = new Date().toISOString();
+    await supabase
+      .from("ad_tracking")
+      .update({ first_data_at: now, updated_at: now })
+      .eq("ad_id", adId);
+    console.log(`📊 First real data detected for ad ${adId} — clock starts now`);
+    return now;
+  }
+  return data?.first_data_at || null;
 }
 
 async function markInactive(adIds) {
@@ -694,62 +715,39 @@ async function run() {
     console.log(`Marked ${nowInactiveIds.length} ads as inactive`);
   }
 
-  // 4. Determine which ads need a snapshot right now
-  const adsToCaptureIds = [];
-  const refreshedTracking = await getTrackedAds();
-
-  for (const tracked of refreshedTracking) {
-    if (!activeAdIds.includes(tracked.ad_id)) continue;
-
-    const hoursSinceFirstSeen = hoursAgo(tracked.first_seen_active);
-    const lastSnapshotAt = tracked.last_snapshot_at || tracked.first_seen_active;
-    const hoursSinceLastSnapshot = hoursAgo(lastSnapshotAt);
-
-    // Capture every hour for ALL active ads — hourly snapshots are crucial for thesis data
-    const captureIntervalHours = 1;
-
-    if (hoursSinceLastSnapshot >= captureIntervalHours * 0.8) {
-      adsToCaptureIds.push(tracked.ad_id);
-      console.log(`📸 Capturing "${tracked.ad_name}" — ${round(hoursSinceFirstSeen, 1)}h old, last snapshot: ${round(hoursSinceLastSnapshot, 1)}h ago`);
-    } else {
-      console.log(`⏭️  Skipping "${tracked.ad_name}" — ${round(hoursSinceFirstSeen, 1)}h old, next capture in ${round(captureIntervalHours - hoursSinceLastSnapshot, 1)}h`);
-    }
-  }
-
-  if (adsToCaptureIds.length === 0) {
-    console.log("\nAll ads are up-to-date. No snapshots needed.");
-    return;
-  }
-
-  // 5. Fetch insights and thumbnails for ads that need capturing
-  const [insightsRows, thumbnails] = await Promise.all([
-    fetchInsightsForAds(adsToCaptureIds),
-    fetchThumbnails(adsToCaptureIds)
+  // 4. Fetch insights for ALL active ads — we need data to decide what to capture
+  const [allInsightsRows, allThumbnails] = await Promise.all([
+    fetchInsightsForAds(activeAdIds),
+    fetchThumbnails(activeAdIds)
   ]);
 
-  // 6. Build campaign objective map from active ads
+  // 5. Build campaign objective map from active ads
   const objectiveMap = {};
   for (const ad of activeAds) {
     objectiveMap[ad.campaign_name] = ad.campaign_objective;
   }
 
-  // 7. Process insights into snapshot rows
+  // 6. Process insights into snapshot rows (all ads with data)
   const grouped = new Map();
-  for (const item of insightsRows) {
+  for (const item of allInsightsRows) {
     const platform = (item.publisher_platform || "").toLowerCase();
     if (!["facebook", "instagram"].includes(platform)) continue;
+
+    const spend = safeNumber(item.spend);
+    const impressions = safeNumber(item.impressions);
+
+    // Skip ads with zero spend AND zero impressions — no real data yet
+    if (spend === 0 && impressions === 0) continue;
 
     const key = `${item.campaign_name}__${item.ad_name}__${platform}`;
     const apiObjective = objectiveMap[item.campaign_name] || "";
     const campaignType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(item.campaign_name, item.ad_name);
-    const spend = safeNumber(item.spend);
     const adCreated = activeAds.find(a => a.ad_id === item.ad_id)?.created_time || null;
-    const adAgeHours = adCreated ? Math.round(hoursAgo(adCreated)) : 0;
 
     const existing = grouped.get(key) || {
       captured_at: new Date().toISOString(),
-      snapshot_hours: adAgeHours,
-      hour_label: computeHourLabel(adAgeHours),
+      snapshot_hours: 0,  // Will be set after first_data_at check
+      hour_label: "Launch", // Will be set after first_data_at check
       campaign_type: campaignType,
       campaign_name: item.campaign_name,
       campaign_id: item.campaign_id || null,
@@ -761,7 +759,7 @@ async function run() {
       ad_created_time: adCreated,
       date_start: item.date_start || null,
       date_stop: item.date_stop || null,
-      impressions: safeNumber(item.impressions),
+      impressions,
       reach: safeNumber(item.reach),
       cpm: safeNumber(item.cpm),
       spend,
@@ -774,7 +772,7 @@ async function run() {
       likes: 0, comments: 0, shares: 0, saves: 0, link_clicks: 0, ctr: 0,
       awareness_score: null, engagement_score: null, traffic_score: null,
       boost_recommendation: null,
-      thumbnail_url: thumbnails[item.ad_id] || null
+      thumbnail_url: allThumbnails[item.ad_id] || null
     };
 
     const parsed = parseActions(item.actions || []);
@@ -785,7 +783,7 @@ async function run() {
     existing.saves += parsed.saves;
     existing.link_clicks += parsed.linkClicks;
     existing.landing_page_views += parsed.landingPageViews;
-    existing.impressions = safeNumber(item.impressions);
+    existing.impressions = impressions;
     existing.reach = safeNumber(item.reach);
     existing.cpm = safeNumber(item.cpm);
     existing.spend = spend;
@@ -794,30 +792,74 @@ async function run() {
     grouped.set(key, existing);
   }
 
-  const cleanRows = [...grouped.values()];
+  const allRowsWithData = [...grouped.values()];
 
-  for (const row of cleanRows) {
+  // 7. For each ad with data, set first_data_at if not already set, then apply throttling
+  const refreshedTracking = await getTrackedAds();
+  const trackingMap = {};
+  for (const t of refreshedTracking) trackingMap[t.ad_id] = t;
+
+  const rowsToInsert = [];
+  for (const row of allRowsWithData) {
+    const tracked = trackingMap[row.ad_id];
+    if (!tracked) continue;
+
+    // Set first_data_at if this is the first time we see real data
+    let firstDataAt = tracked.first_data_at;
+    if (!firstDataAt) {
+      firstDataAt = await setFirstDataAt(row.ad_id);
+    }
+
+    // Calculate hours since first real data (the TRUE clock for this ad)
+    const hoursSinceFirstData = firstDataAt ? hoursAgo(firstDataAt) : 0;
+
+    // Determine capture interval: hourly for first 12h, then every 24h
+    const captureIntervalHours = hoursSinceFirstData <= 12 ? 1 : 24;
+
+    // Check throttling
+    const lastSnapshotAt = tracked.last_snapshot_at;
+    const hoursSinceLastSnapshot = lastSnapshotAt ? hoursAgo(lastSnapshotAt) : Infinity;
+
+    if (hoursSinceLastSnapshot >= captureIntervalHours * 0.8) {
+      // Set correct hour label based on hours since first data
+      row.snapshot_hours = Math.round(hoursSinceFirstData);
+      row.hour_label = computeHourLabel(hoursSinceFirstData);
+      rowsToInsert.push(row);
+      console.log(`📸 Capturing "${row.ad_name}" (${row.publisher_platform}) — ${round(hoursSinceFirstData, 1)}h since first data, label: "${row.hour_label}", interval: ${captureIntervalHours}h`);
+    } else {
+      console.log(`⏭️  Skipping "${row.ad_name}" — ${round(hoursSinceFirstData, 1)}h since first data, next capture in ${round(captureIntervalHours - hoursSinceLastSnapshot, 1)}h`);
+    }
+  }
+
+  // Compute derived metrics and scores
+  for (const row of rowsToInsert) {
     row.video_3s_view_rate = row.impressions > 0 ? round((row.video_3s_views / row.impressions) * 100) : 0;
     row.ctr = row.impressions > 0 ? round((row.link_clicks / row.impressions) * 100) : 0;
     row.cost_per_click = row.link_clicks > 0 ? round(row.spend / row.link_clicks, 4) : 0;
     row.lpvr = row.link_clicks > 0 ? round(row.landing_page_views / row.link_clicks, 4) : 0;
   }
 
-  computeAbsoluteScores(cleanRows);
+  computeAbsoluteScores(rowsToInsert);
 
   // 8. Insert into Supabase
-  if (cleanRows.length > 0) {
-    const { error } = await supabase.from("ad_snapshots").insert(cleanRows);
+  if (rowsToInsert.length > 0) {
+    const { error } = await supabase.from("ad_snapshots").insert(rowsToInsert);
     if (error) throw error;
 
     // Update snapshot counts
-    const capturedAdIds = [...new Set(cleanRows.map(r => r.ad_id))];
+    const capturedAdIds = [...new Set(rowsToInsert.map(r => r.ad_id))];
     for (const adId of capturedAdIds) {
       await incrementSnapshotCount(adId);
     }
   }
 
-  console.log(`\n✅ Meta: Captured ${cleanRows.length} snapshot rows for ${adsToCaptureIds.length} ads`);
+  const adsWithData = [...new Set(allRowsWithData.map(r => r.ad_id))];
+  const adsNoData = activeAdIds.filter(id => !adsWithData.includes(id));
+  if (adsNoData.length > 0) {
+    console.log(`⏳ ${adsNoData.length} active ads have no data yet (waiting for delivery indexation)`);
+  }
+
+  console.log(`\n✅ Meta: Captured ${rowsToInsert.length} snapshot rows (${adsWithData.length} ads with data, ${adsNoData.length} waiting for data)`);
 
   // 9. TikTok capture (if configured)
   let tikTokCaptured = 0;
@@ -839,17 +881,43 @@ async function run() {
         ]);
         const ttRows = processTikTokSnapshots(ttAds, ttInsights, campaignObjectiveMap, campaignStatusMap, ttThumbs);
 
-        // Only register ads that have data (not zero-spend ones)
+        // Register ads that have data and apply throttling + first_data_at labels
+        const ttRowsToInsert = [];
         for (const row of ttRows) {
           await upsertTracking(row.ad_id, row.ad_name || "", row.campaign_name || "");
+
+          // Set first_data_at if this is the first time seeing real data
+          const firstDataAt = await setFirstDataAt(row.ad_id);
+          const hoursSinceFirstData = firstDataAt ? hoursAgo(firstDataAt) : 0;
+
+          // Determine capture interval: hourly for first 12h, then every 24h
+          const captureIntervalHours = hoursSinceFirstData <= 12 ? 1 : 24;
+
+          // Check throttling
+          const { data: ttTracked } = await supabase
+            .from("ad_tracking")
+            .select("last_snapshot_at")
+            .eq("ad_id", row.ad_id)
+            .single();
+          const hoursSinceLastSnapshot = ttTracked?.last_snapshot_at ? hoursAgo(ttTracked.last_snapshot_at) : Infinity;
+
+          if (hoursSinceLastSnapshot >= captureIntervalHours * 0.8) {
+            // Update hour label based on first_data_at (not ad creation time)
+            row.snapshot_hours = Math.round(hoursSinceFirstData);
+            row.hour_label = computeHourLabel(hoursSinceFirstData);
+            ttRowsToInsert.push(row);
+            console.log(`📸 TikTok: Capturing "${row.ad_name}" — ${round(hoursSinceFirstData, 1)}h since first data, label: "${row.hour_label}"`);
+          } else {
+            console.log(`⏭️  TikTok: Skipping "${row.ad_name}" — next capture in ${round(captureIntervalHours - hoursSinceLastSnapshot, 1)}h`);
+          }
         }
 
-        if (ttRows.length > 0) {
-          const { error: ttErr } = await supabase.from("ad_snapshots").insert(ttRows);
+        if (ttRowsToInsert.length > 0) {
+          const { error: ttErr } = await supabase.from("ad_snapshots").insert(ttRowsToInsert);
           if (ttErr) console.warn("TikTok snapshot insert failed:", ttErr.message);
           else {
-            tikTokCaptured = ttRows.length;
-            for (const adId of [...new Set(ttRows.map(r => r.ad_id))]) {
+            tikTokCaptured = ttRowsToInsert.length;
+            for (const adId of [...new Set(ttRowsToInsert.map(r => r.ad_id))]) {
               await incrementSnapshotCount(adId);
             }
           }
