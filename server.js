@@ -657,43 +657,58 @@ async function fetchTikTokInsights(token, adIds) {
     const endDate = new Date().toISOString().split("T")[0];
     const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-    // Fetch ALL ad-level data for the advertiser (no ad_id filter — avoids URL length issues)
-    const params = {
+    // Use only validated metrics that work with TikTok reporting API
+    // Some metrics like video_play_actions, likes, shares etc may not be valid
+    // for the integrated report — we try with extended set first, fall back to basic
+    const basicMetrics = ["spend", "impressions", "clicks", "reach", "cpm", "cpc", "ctr", "frequency"];
+    const extendedMetrics = [...basicMetrics, "video_play_actions", "video_watched_2s", "likes", "comments", "shares", "landing_page_view"];
+
+    const baseParams = {
       advertiser_id: token.advertiser_id,
       report_type: "BASIC",
       data_level: "AUCTION_AD",
       dimensions: JSON.stringify(["ad_id"]),
-      metrics: JSON.stringify([
-        "spend", "impressions", "reach", "cpm", "cpc", "ctr",
-        "clicks", "video_play_actions", "video_watched_2s",
-        "likes", "comments", "shares", "frequency",
-        "landing_page_view"
-      ]),
       start_date: startDate,
       end_date: endDate,
-      page_size: 200
+      page_size: 1000
     };
-    console.log(`TikTok insights request: ${startDate} to ${endDate}, advertiser=${token.advertiser_id}`);
 
-    const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
-      params,
-      headers: { "Access-Token": token.access_token }
-    });
-    const list = res.data?.data?.list || [];
-    console.log(`TikTok insights: got ${list.length} rows, code: ${res.data?.code}, message: ${res.data?.message}`);
-    if (res.data?.code !== 0) {
-      console.warn("TikTok insights API error:", JSON.stringify(res.data));
-      // Try with service_type if it failed without
-      console.log("Retrying with service_type=AUCTION...");
-      const res2 = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
-        params: { ...params, service_type: "AUCTION" },
+    console.log(`TikTok insights: ${startDate} to ${endDate}`);
+
+    // Try extended metrics first
+    let list = [];
+    try {
+      const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
+        params: { ...baseParams, metrics: JSON.stringify(extendedMetrics) },
         headers: { "Access-Token": token.access_token }
       });
-      const list2 = res2.data?.data?.list || [];
-      console.log(`TikTok insights retry: got ${list2.length} rows, code: ${res2.data?.code}, message: ${res2.data?.message}`);
-      if (res2.data?.code !== 0) console.warn("TikTok insights retry error:", JSON.stringify(res2.data));
-      return list2;
+      list = res.data?.data?.list || [];
+      console.log(`TikTok insights (extended): ${list.length} rows, code: ${res.data?.code}`);
+      if (list.length > 0) return list;
+    } catch (e) {
+      console.log(`TikTok extended metrics failed: ${e.response?.data?.message || e.message}`);
     }
+
+    // Fall back to basic metrics only
+    try {
+      const res2 = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
+        params: { ...baseParams, metrics: JSON.stringify(basicMetrics) },
+        headers: { "Access-Token": token.access_token }
+      });
+      list = res2.data?.data?.list || [];
+      console.log(`TikTok insights (basic): ${list.length} rows, code: ${res2.data?.code}`);
+      if (list.length > 0) return list;
+    } catch (e) {
+      console.log(`TikTok basic metrics failed: ${e.response?.data?.message || e.message}`);
+    }
+
+    // Last resort: absolute minimum
+    const res3 = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
+      params: { ...baseParams, metrics: JSON.stringify(["spend", "impressions", "clicks"]) },
+      headers: { "Access-Token": token.access_token }
+    });
+    list = res3.data?.data?.list || [];
+    console.log(`TikTok insights (minimal): ${list.length} rows, code: ${res3.data?.code}`);
     return list;
   } catch (err) {
     console.warn("TikTok insights fetch failed:", JSON.stringify(err.response?.data || err.message));
@@ -730,7 +745,8 @@ function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignSta
       objective: campaignObjectiveMap[ad.campaign_id] || ad.objective_type || ad.objective || "",
       campaignStatus: campaignStatusMap[ad.campaign_id] || "",
       adStatus: ad.status || ad.operation_status || "",
-      primaryStatus: ad._primary_status || "",
+      primaryStatus: ad._primary_status || ad.primary_status || "",
+      secondaryStatus: ad.secondary_status || "",
       created_time: ad.create_time || null
     };
   }
@@ -754,10 +770,12 @@ function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignSta
 
     const campaignType = detectTikTokCampaignType(adInfo.campaign_name, adInfo.objective);
 
-    // Determine ad status using primary_status from ad/get + campaign status
-    // STATUS_DELIVERY_OK = currently delivering, anything else = completed/ended
-    const primaryStatus = (adInfo.primaryStatus || "").toUpperCase();
-    const isActive = primaryStatus === "STATUS_DELIVERY_OK";
+    // Determine ad status using secondary_status (primary_status is often empty)
+    // AD_STATUS_DELIVERY_OK = currently delivering, AD_STATUS_DONE/DISABLE/CAMPAIGN_DISABLE = completed
+    const secStatus = (adInfo.secondaryStatus || "").toUpperCase();
+    const priStatus = (adInfo.primaryStatus || "").toUpperCase();
+    const isActive = secStatus === "AD_STATUS_DELIVERY_OK" || priStatus === "STATUS_DELIVERY_OK" ||
+                     secStatus.includes("DELIVERY_OK");
     const adStatus = isActive ? "ACTIVE" : "COMPLETED";
 
     const reach = safeNumber(metrics.reach);
