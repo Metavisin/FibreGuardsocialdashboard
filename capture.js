@@ -186,15 +186,27 @@ async function fetchTikTokCampaigns(token) {
 
 async function fetchTikTokActiveAds(token) {
   if (!token) return [];
+  const allAds = [];
   try {
-    const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
-      params: { advertiser_id: token.advertiser_id, page_size: 200 },
-      headers: { "Access-Token": token.access_token }
-    });
-    const ads = res.data?.data?.list || [];
-    console.log(`TikTok: found ${ads.length} total ads`);
-    return ads;
-  } catch (err) { console.warn("TikTok ad fetch failed:", err.response?.data || err.message); return []; }
+    // Fetch ads across all primary statuses to get active + ended + disabled (not deleted)
+    for (const primaryStatus of ["STATUS_DELIVERY_OK", "STATUS_DISABLE", "STATUS_DONE", "STATUS_NOT_DELIVER"]) {
+      try {
+        const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
+          params: {
+            advertiser_id: token.advertiser_id, page_size: 200,
+            filtering: JSON.stringify({ primary_status: primaryStatus })
+          },
+          headers: { "Access-Token": token.access_token }
+        });
+        const ads = res.data?.data?.list || [];
+        for (const ad of ads) { ad._primary_status = primaryStatus; }
+        allAds.push(...ads);
+        if (ads.length > 0) console.log(`TikTok ads (${primaryStatus}): ${ads.length}`);
+      } catch (e) { /* skip */ }
+    }
+    console.log(`TikTok: found ${allAds.length} total ads across all statuses`);
+    return allAds;
+  } catch (err) { console.warn("TikTok ad fetch failed:", err.response?.data || err.message); return allAds; }
 }
 
 async function fetchTikTokInsights(token, adIds) {
@@ -233,7 +245,6 @@ async function fetchTikTokInsights(token, adIds) {
 function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campaignStatusMap = {}) {
   const adInfoMap = {};
   for (const ad of ads) {
-    const adStatus = ad.status || ad.operation_status || "";
     adInfoMap[String(ad.ad_id)] = {
       ad_name: ad.ad_name || ad.ad_text || "",
       campaign_name: ad.campaign_name || "",
@@ -241,7 +252,7 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
       adgroup_name: ad.adgroup_name || "",
       objective: campaignObjectiveMap[ad.campaign_id] || ad.objective_type || ad.objective || "",
       campaignStatus: campaignStatusMap[ad.campaign_id] || "",
-      adStatus: adStatus,
+      primaryStatus: ad._primary_status || "",
       created_time: ad.create_time || null
     };
   }
@@ -277,11 +288,9 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
 
     const campaignType = detectType(info.campaign_name, info.objective);
 
-    // Determine status
-    const campStatus = (info.campaignStatus || "").toUpperCase();
-    const rawAdStatus = (info.adStatus || "").toUpperCase();
-    const isActive = campStatus.includes("ENABLE") &&
-      (rawAdStatus.includes("DELIVERY_OK") || rawAdStatus.includes("ENABLE") || rawAdStatus === "AD_STATUS_DELIVERY_OK");
+    // Determine status: STATUS_DELIVERY_OK = currently delivering, anything else = completed
+    const primaryStatus = (info.primaryStatus || "").toUpperCase();
+    const isActive = primaryStatus === "STATUS_DELIVERY_OK";
     const adStatus = isActive ? "ACTIVE" : "COMPLETED";
 
     const clicks = safeNumber(m.clicks);
