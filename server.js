@@ -1516,7 +1516,7 @@ app.get("/smart-capture", async (req, res) => {
       // Determine ad age from created_time
       const adCreatedDate = adCreatedTime ? new Date(adCreatedTime) : null;
       const adAgeHours = adCreatedDate ? (now - adCreatedDate) / (1000 * 60 * 60) : Infinity;
-      const captureIntervalHours = adAgeHours < 12 ? 1 : 24;
+      const captureIntervalHours = 1; // Capture every hour for all active ads
 
       const lastCapture = lastCaptureMap[adId];
       if (lastCapture) {

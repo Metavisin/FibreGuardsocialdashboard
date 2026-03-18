@@ -705,19 +705,12 @@ async function run() {
     const lastSnapshotAt = tracked.last_snapshot_at || tracked.first_seen_active;
     const hoursSinceLastSnapshot = hoursAgo(lastSnapshotAt);
 
-    // Determine capture interval based on age
-    let captureIntervalHours;
-    if (hoursSinceFirstSeen <= 12) {
-      captureIntervalHours = 1;  // Every hour for first 12 hours
-    } else if (hoursSinceFirstSeen <= 48) {
-      captureIntervalHours = 6;  // Every 6 hours for next 36 hours
-    } else {
-      captureIntervalHours = 24; // Daily after 48 hours
-    }
+    // Capture every hour for ALL active ads — hourly snapshots are crucial for thesis data
+    const captureIntervalHours = 1;
 
     if (hoursSinceLastSnapshot >= captureIntervalHours * 0.8) {
       adsToCaptureIds.push(tracked.ad_id);
-      console.log(`📸 Capturing "${tracked.ad_name}" — ${round(hoursSinceFirstSeen, 1)}h old, interval: ${captureIntervalHours}h, last snapshot: ${round(hoursSinceLastSnapshot, 1)}h ago`);
+      console.log(`📸 Capturing "${tracked.ad_name}" — ${round(hoursSinceFirstSeen, 1)}h old, last snapshot: ${round(hoursSinceLastSnapshot, 1)}h ago`);
     } else {
       console.log(`⏭️  Skipping "${tracked.ad_name}" — ${round(hoursSinceFirstSeen, 1)}h old, next capture in ${round(captureIntervalHours - hoursSinceLastSnapshot, 1)}h`);
     }
