@@ -957,7 +957,7 @@
       chipClass: 'chip-blue', ads: awareness, scoreKey: 'awareness_score',
       metrics: d => [
         ['Reach', fmt(d.reach)], ['CPM', '\u20ac'+(d.cpm||0).toFixed(3)],
-        ['3s Views', fmt(d.video_3s_views)], ['3s View Rate', (d.video_3s_view_rate||0).toFixed(1)+'%'],
+        ['Video Views', fmt(d.video_3s_views)], ['Video View Rate', (d.video_3s_view_rate||0).toFixed(1)+'%'],
         ['Spend', '\u20ac'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
       ],
       summaryExtras: ads => {
@@ -1199,7 +1199,7 @@
       h += `<table class="compare-table">`;
 
       if (isAwareness) {
-        h += `<tr><th>Platform</th><th>Reach</th><th>CPM</th><th>3s View Rate</th><th>Impressions</th><th>Score</th></tr>`;
+        h += `<tr><th>Platform</th><th>Reach</th><th>CPM</th><th>Video View Rate</th><th>Impressions</th><th>Score</th></tr>`;
         const bestReach = Math.max(...items.map(d => d.reach || 0));
         const bestCpm = Math.min(...items.filter(d => d.cpm > 0).map(d => d.cpm));
         const bestVr = Math.max(...items.map(d => d.video_3s_view_rate || 0));
@@ -1521,7 +1521,7 @@
       formula: `<strong>Score</strong> = 0.40 &times; min(Reach / ${TARGETS.awareness.reach.toLocaleString()}, 2.0)
   + 0.40 &times; min(&euro;${TARGETS.awareness.cpm} / CPM, 2.0)
   + 0.20 &times; min(ViewRate / ${TARGETS.awareness.viewRate}%, 2.0)`,
-      targets: `<strong>Targets:</strong> Reach = ${(TARGETS.awareness.reach/1000).toFixed(0)}K, CPM = &euro;${TARGETS.awareness.cpm}, 3s View Rate = ${TARGETS.awareness.viewRate}%`
+      targets: `<strong>Targets:</strong> Reach = ${(TARGETS.awareness.reach/1000).toFixed(0)}K, CPM = &euro;${TARGETS.awareness.cpm}, Video View Rate = ${TARGETS.awareness.viewRate}%`
     },
     engagement: {
       title: 'Engagement Score',

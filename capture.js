@@ -162,6 +162,21 @@ async function getTikTokToken() {
 async function fetchTikTokActiveAds(token) {
   if (!token) return [];
   try {
+    // First fetch campaigns to get objectives
+    const campRes = await axios.get("https://business-api.tiktok.com/open_api/v1.3/campaign/get/", {
+      params: {
+        advertiser_id: token.advertiser_id, page_size: 200,
+        filtering: JSON.stringify({ status: "CAMPAIGN_STATUS_ENABLE" })
+      },
+      headers: { "Access-Token": token.access_token }
+    });
+    const campaigns = campRes.data?.data?.list || [];
+    const campaignObjectiveMap = {};
+    for (const c of campaigns) {
+      campaignObjectiveMap[c.campaign_id] = c.objective_type || c.objective || "";
+    }
+    console.log(`TikTok: found ${campaigns.length} active campaigns`);
+
     const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
       params: {
         advertiser_id: token.advertiser_id, page_size: 200,
@@ -169,8 +184,13 @@ async function fetchTikTokActiveAds(token) {
       },
       headers: { "Access-Token": token.access_token }
     });
-    return res.data?.data?.list || [];
-  } catch (err) { console.warn("TikTok ad fetch failed:", err.message); return []; }
+    const ads = res.data?.data?.list || [];
+    console.log(`TikTok: found ${ads.length} active ads`);
+    for (const ad of ads) {
+      ad._objective = campaignObjectiveMap[ad.campaign_id] || "";
+    }
+    return ads;
+  } catch (err) { console.warn("TikTok ad fetch failed:", err.response?.data || err.message); return []; }
 }
 
 async function fetchTikTokInsights(token, adIds) {
@@ -180,76 +200,127 @@ async function fetchTikTokInsights(token, adIds) {
     const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
       params: {
-        advertiser_id: token.advertiser_id, report_type: "BASIC",
-        data_level: "AUCTION_AD", dimensions: JSON.stringify(["ad_id"]),
-        metrics: JSON.stringify(["spend","impressions","reach","cpm","cpc","ctr","clicks","video_play_actions","video_watched_6s","likes","comments","shares","follows","frequency","campaign_name","adgroup_name","ad_name"]),
+        advertiser_id: token.advertiser_id,
+        service_type: "AUCTION",
+        report_type: "BASIC",
+        data_level: "AUCTION_AD",
+        dimensions: JSON.stringify(["ad_id"]),
+        metrics: JSON.stringify([
+          "spend", "impressions", "reach", "cpm", "cpc", "ctr",
+          "clicks", "video_play_actions", "video_watched_2s",
+          "likes", "comments", "shares", "frequency",
+          "landing_page_view", "result", "cost_per_result"
+        ]),
         start_date: startDate, end_date: endDate,
-        filtering: JSON.stringify({ ad_ids: adIds }), page_size: 200
+        filtering: JSON.stringify([
+          { field_name: "ad_id", filter_type: "IN", filter_value: adIds.map(String) }
+        ]),
+        page_size: 200
       },
       headers: { "Access-Token": token.access_token }
     });
-    return res.data?.data?.list || [];
-  } catch (err) { console.warn("TikTok insights failed:", err.message); return []; }
+    const list = res.data?.data?.list || [];
+    console.log(`TikTok insights: got ${list.length} rows, code: ${res.data?.code}`);
+    if (res.data?.code !== 0) console.warn("TikTok insights API error:", JSON.stringify(res.data));
+    return list;
+  } catch (err) { console.warn("TikTok insights failed:", err.response?.data || err.message); return []; }
 }
 
 function processTikTokSnapshots(ads, insights) {
   const adInfoMap = {};
   for (const ad of ads) {
-    adInfoMap[ad.ad_id] = {
+    adInfoMap[String(ad.ad_id)] = {
       ad_name: ad.ad_name || ad.ad_text || "",
       campaign_name: ad.campaign_name || "",
       campaign_id: ad.campaign_id || null,
       adgroup_name: ad.adgroup_name || "",
-      objective: ad.objective_type || ad.objective || "",
+      objective: ad._objective || ad.objective_type || ad.objective || "",
       created_time: ad.create_time || null
     };
   }
 
-  const rows = [];
-  for (const item of insights) {
-    const m = item.metrics || {};
-    const d = item.dimensions || {};
-    const adId = d.ad_id;
-    const info = adInfoMap[adId] || {};
-    const campaignName = info.campaign_name || m.campaign_name || "";
-    const text = `${campaignName} ${info.objective || ""}`.toLowerCase();
-    const campaignType = text.includes("traffic") || text.includes("clicks") ? "traffic" :
-      text.includes("engagement") || text.includes("education") ? "engagement" : "awareness";
-
-    const impressions = safeNumber(m.impressions);
-    const video6s = safeNumber(m.video_watched_6s);
-    const clicks = safeNumber(m.clicks);
-    const spend = safeNumber(m.spend);
-    const adCreated = info.created_time || null;
-    const adAgeHours = adCreated ? Math.round(hoursAgo(adCreated)) : 0;
-
-    rows.push({
-      captured_at: new Date().toISOString(),
-      snapshot_hours: adAgeHours,
-      campaign_type: campaignType,
-      campaign_name: campaignName,
-      campaign_id: info.campaign_id || null,
-      adset_name: info.adgroup_name || m.adgroup_name || "",
-      ad_name: info.ad_name || m.ad_name || "",
-      ad_id: adId,
-      publisher_platform: "tiktok",
-      ad_status: "ACTIVE",
-      ad_created_time: adCreated,
-      date_start: null, date_stop: null,
-      impressions, reach: safeNumber(m.reach), cpm: safeNumber(m.cpm),
-      spend, frequency: safeNumber(m.frequency),
-      cost_per_click: safeNumber(m.cpc),
-      landing_page_views: 0, lpvr: 0,
-      video_3s_views: safeNumber(m.video_play_actions),
-      video_3s_view_rate: impressions > 0 ? round((video6s / impressions) * 100) : 0,
-      likes: safeNumber(m.likes), comments: safeNumber(m.comments),
-      shares: safeNumber(m.shares), saves: 0,
-      link_clicks: clicks,
-      ctr: safeNumber(m.ctr),
-      awareness_score: null, engagement_score: null, traffic_score: null,
-      boost_recommendation: null, thumbnail_url: null
-    });
+  // TikTok campaign type detection (same logic as server.js)
+  function detectType(campaignName, objective) {
+    const obj = (objective || "").toUpperCase();
+    if (obj === "REACH" || obj === "VIDEO_VIEWS" || obj === "RF_REACH") return "awareness";
+    if (obj === "TRAFFIC" || obj === "WEBSITE_CONVERSIONS" || obj === "CATALOG_SALES") return "traffic";
+    if (obj === "COMMUNITY_INTERACTION" || obj === "ENGAGEMENT" || obj === "LEAD_GENERATION") return "engagement";
+    const text = `${campaignName} ${objective}`.toLowerCase();
+    if (text.includes("awareness") || text.includes("reach") || text.includes("video_view")) return "awareness";
+    if (text.includes("traffic") || text.includes("click") || text.includes("website")) return "traffic";
+    if (text.includes("engagement") || text.includes("community") || text.includes("interaction")) return "engagement";
+    return "awareness";
   }
+
+  const rows = [];
+
+  if (insights.length > 0) {
+    for (const item of insights) {
+      const m = item.metrics || {};
+      const d = item.dimensions || {};
+      const adId = String(d.ad_id || "");
+      const info = adInfoMap[adId] || {};
+      const campaignType = detectType(info.campaign_name, info.objective);
+
+      const impressions = safeNumber(m.impressions);
+      const video2s = safeNumber(m.video_watched_2s);
+      const clicks = safeNumber(m.clicks);
+      const spend = safeNumber(m.spend);
+      const landingPageViews = safeNumber(m.landing_page_view);
+      const lpvr = clicks > 0 ? round(landingPageViews / clicks, 4) : 0;
+      const adCreated = info.created_time || null;
+      const adAgeHours = adCreated ? Math.round(hoursAgo(adCreated)) : 0;
+
+      rows.push({
+        captured_at: new Date().toISOString(),
+        snapshot_hours: adAgeHours,
+        campaign_type: campaignType,
+        campaign_name: info.campaign_name || "",
+        campaign_id: info.campaign_id || null,
+        adset_name: info.adgroup_name || "",
+        ad_name: info.ad_name || "",
+        ad_id: adId,
+        publisher_platform: "tiktok",
+        ad_status: "ACTIVE",
+        ad_created_time: adCreated,
+        date_start: null, date_stop: null,
+        impressions, reach: safeNumber(m.reach), cpm: safeNumber(m.cpm),
+        spend, frequency: safeNumber(m.frequency),
+        cost_per_click: safeNumber(m.cpc),
+        landing_page_views: landingPageViews, lpvr,
+        video_3s_views: safeNumber(m.video_play_actions),
+        video_3s_view_rate: impressions > 0 ? round((video2s / impressions) * 100) : 0,
+        likes: safeNumber(m.likes), comments: safeNumber(m.comments),
+        shares: safeNumber(m.shares), saves: 0,
+        link_clicks: clicks,
+        ctr: safeNumber(m.ctr),
+        awareness_score: null, engagement_score: null, traffic_score: null,
+        boost_recommendation: null, thumbnail_url: null
+      });
+    }
+  } else {
+    // No insights yet — still create rows so ads get registered in tracking
+    for (const [adId, info] of Object.entries(adInfoMap)) {
+      const campaignType = detectType(info.campaign_name, info.objective);
+      const adCreated = info.created_time || null;
+      const adAgeHours = adCreated ? Math.round(hoursAgo(adCreated)) : 0;
+      rows.push({
+        captured_at: new Date().toISOString(), snapshot_hours: adAgeHours,
+        campaign_type: campaignType, campaign_name: info.campaign_name || "",
+        campaign_id: info.campaign_id || null, adset_name: info.adgroup_name || "",
+        ad_name: info.ad_name || "", ad_id: adId,
+        publisher_platform: "tiktok", ad_status: "ACTIVE",
+        ad_created_time: adCreated, date_start: null, date_stop: null,
+        impressions: 0, reach: 0, cpm: 0, spend: 0, frequency: 0,
+        cost_per_click: 0, landing_page_views: 0, lpvr: 0,
+        video_3s_views: 0, video_3s_view_rate: 0,
+        likes: 0, comments: 0, shares: 0, saves: 0, link_clicks: 0, ctr: 0,
+        awareness_score: null, engagement_score: null, traffic_score: null,
+        boost_recommendation: null, thumbnail_url: null
+      });
+    }
+  }
+
   computeAbsoluteScores(rows);
   return rows;
 }
