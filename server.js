@@ -625,7 +625,6 @@ async function fetchTikTokAds(token) {
     // Log each ad's status for debugging
     for (const ad of ads) {
       ad._primary_status = ad.primary_status || ad.status || "";
-      console.log(`  Ad ${ad.ad_id}: name="${(ad.ad_name||'').substring(0,40)}", primary_status=${ad.primary_status}, secondary_status=${ad.secondary_status}, operation_status=${ad.operation_status}, campaign_id=${ad.campaign_id}`);
     }
     return ads;
   } catch (err) {
@@ -641,7 +640,6 @@ async function fetchTikTokAds(token) {
       console.log(`TikTok fallback: found ${ads.length} ads, code: ${res2.data?.code}`);
       for (const ad of ads) {
         ad._primary_status = ad.primary_status || ad.status || "";
-        console.log(`  Ad ${ad.ad_id}: name="${(ad.ad_name||'').substring(0,40)}", primary_status=${ad.primary_status}, campaign_id=${ad.campaign_id}`);
       }
       return ads;
     } catch (err2) {
@@ -649,6 +647,97 @@ async function fetchTikTokAds(token) {
       return [];
     }
   }
+}
+
+// Fetch TikTok ad thumbnails from video/image creative info
+// Returns map: ad_id -> thumbnail_url
+async function fetchTikTokThumbnails(token, ads) {
+  const thumbnails = {};
+  if (!token || ads.length === 0) return thumbnails;
+
+  try {
+    // Collect video_ids and image_ids from ads
+    const videoIds = [];
+    const imageAdMap = {}; // image_id -> [ad_ids]
+    const videoAdMap = {}; // video_id -> [ad_ids]
+
+    for (const ad of ads) {
+      const adId = String(ad.ad_id);
+      // TikTok ad objects may have video_id or image_ids in their creative
+      if (ad.video_id) {
+        videoIds.push(ad.video_id);
+        if (!videoAdMap[ad.video_id]) videoAdMap[ad.video_id] = [];
+        videoAdMap[ad.video_id].push(adId);
+      }
+      if (ad.image_ids && ad.image_ids.length > 0) {
+        for (const imgId of ad.image_ids) {
+          if (!imageAdMap[imgId]) imageAdMap[imgId] = [];
+          imageAdMap[imgId].push(adId);
+        }
+      }
+      // Some ads have avatar_icon_web_uri or profile_image_url
+      if (ad.avatar_icon_web_uri && !thumbnails[adId]) {
+        thumbnails[adId] = ad.avatar_icon_web_uri;
+      }
+    }
+
+    // Fetch video thumbnails (poster_url) in batches of 60
+    const uniqueVideoIds = [...new Set(videoIds)];
+    for (let i = 0; i < uniqueVideoIds.length; i += 60) {
+      const batch = uniqueVideoIds.slice(i, i + 60);
+      try {
+        const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/file/video/ad/info/", {
+          params: {
+            advertiser_id: token.advertiser_id,
+            video_ids: JSON.stringify(batch)
+          },
+          headers: { "Access-Token": token.access_token }
+        });
+        const videos = res.data?.data?.list || [];
+        for (const v of videos) {
+          const posterUrl = v.poster_url || v.video_cover_url || null;
+          if (posterUrl && videoAdMap[v.video_id]) {
+            for (const adId of videoAdMap[v.video_id]) {
+              thumbnails[adId] = posterUrl;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`TikTok video info batch failed: ${e.message}`);
+      }
+    }
+
+    // Fetch image URLs in batches of 100
+    const uniqueImageIds = Object.keys(imageAdMap);
+    for (let i = 0; i < uniqueImageIds.length; i += 100) {
+      const batch = uniqueImageIds.slice(i, i + 100);
+      try {
+        const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/file/image/ad/info/", {
+          params: {
+            advertiser_id: token.advertiser_id,
+            image_ids: JSON.stringify(batch)
+          },
+          headers: { "Access-Token": token.access_token }
+        });
+        const images = res.data?.data?.list || [];
+        for (const img of images) {
+          const imgUrl = img.image_url || img.url || null;
+          if (imgUrl && imageAdMap[img.image_id]) {
+            for (const adId of imageAdMap[img.image_id]) {
+              if (!thumbnails[adId]) thumbnails[adId] = imgUrl; // video poster takes priority
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`TikTok image info batch failed: ${e.message}`);
+      }
+    }
+
+    console.log(`TikTok: fetched ${Object.keys(thumbnails).length} thumbnails from ${uniqueVideoIds.length} videos + ${uniqueImageIds.length} images`);
+  } catch (err) {
+    console.warn("TikTok thumbnail fetch failed (non-blocking):", err.message);
+  }
+  return thumbnails;
 }
 
 async function fetchTikTokInsights(token, adIds) {
@@ -728,7 +817,7 @@ function detectTikTokCampaignType(campaignName = "", objective = "") {
   return "awareness";
 }
 
-function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignStatusMap = {}) {
+function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignStatusMap = {}, thumbnailMap = {}) {
   // Build ad info map from ad/get response
   const adInfoMap = {};
   for (const ad of ads) {
@@ -829,7 +918,7 @@ function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignSta
       engagement_score: null,
       traffic_score: null,
       boost_recommendation: null,
-      thumbnail_url: null
+      thumbnail_url: thumbnailMap[adId] || null
     });
   }
 
@@ -1006,6 +1095,30 @@ app.get("/capture", async (req, res) => {
       campaignBudgets, adsetBudgets, snapshotHours
     });
 
+    // Also capture TikTok data (same system as Meta)
+    try {
+      const tikTokToken = await getTikTokToken();
+      if (tikTokToken) {
+        const [ttCampaignData, tikTokAds] = await Promise.all([
+          fetchTikTokCampaigns(tikTokToken),
+          fetchTikTokAds(tikTokToken)
+        ]);
+        const { campaignObjectiveMap = {}, campaignStatusMap = {} } = ttCampaignData;
+        if (tikTokAds.length > 0) {
+          const tikTokAdIds = tikTokAds.map(a => a.ad_id);
+          const [tikTokInsights, tikTokThumbs] = await Promise.all([
+            fetchTikTokInsights(tikTokToken, tikTokAdIds),
+            fetchTikTokThumbnails(tikTokToken, tikTokAds)
+          ]);
+          const tikTokRows = processTikTokData(tikTokAds, tikTokInsights, campaignObjectiveMap, campaignStatusMap, tikTokThumbs);
+          cleanRows.push(...tikTokRows);
+          console.log(`Capture: added ${tikTokRows.length} TikTok ads`);
+        }
+      }
+    } catch (ttErr) {
+      console.warn("TikTok capture skipped:", ttErr.message);
+    }
+
     await generateAdInsights(cleanRows);
 
     const { error } = await supabase.from("ad_snapshots").insert(cleanRows);
@@ -1089,11 +1202,18 @@ app.get("/tiktok-debug", async (req, res) => {
       log.push(`  Ad ${d.ad_id}: spend=${m.spend}, impressions=${m.impressions}, reach=${m.reach}, clicks=${m.clicks}, ctr=${m.ctr}, cpc=${m.cpc}, lpv=${m.landing_page_view}`);
     }
 
+    log.push("\nStep 4c: Fetching thumbnails...");
+    const thumbs = await fetchTikTokThumbnails(token, ads);
+    log.push(`Thumbnails found: ${Object.keys(thumbs).length}`);
+    for (const [adId, url] of Object.entries(thumbs).slice(0, 5)) {
+      log.push(`  Ad ${adId}: ${url.substring(0, 80)}...`);
+    }
+
     log.push("\nStep 5: Processing data...");
-    const rows = processTikTokData(ads, insights, campaignObjectiveMap, campaignStatusMap);
+    const rows = processTikTokData(ads, insights, campaignObjectiveMap, campaignStatusMap, thumbs);
     log.push(`Processed rows (with data): ${rows.length}`);
     for (const r of rows) {
-      log.push(`  ${r.ad_name.substring(0,40)} | ${r.publisher_platform} | type=${r.campaign_type} | status=${r.ad_status} | spend=${r.spend} | reach=${r.reach} | score=${r.awareness_score??r.engagement_score??r.traffic_score}`);
+      log.push(`  ${r.ad_name.substring(0,40)} | ${r.publisher_platform} | type=${r.campaign_type} | status=${r.ad_status} | spend=${r.spend} | thumb=${r.thumbnail_url ? 'yes' : 'no'} | score=${r.awareness_score??r.engagement_score??r.traffic_score}`);
     }
 
     res.json({ ok: true, log, adsCount: ads.length, insightsCount: insights.length, processedCount: rows.length, processed: rows });
@@ -1143,8 +1263,11 @@ app.get("/live", async (req, res) => {
 
         if (tikTokAds.length > 0) {
           const tikTokAdIds = tikTokAds.map(a => a.ad_id);
-          const tikTokInsights = await fetchTikTokInsights(tikTokToken, tikTokAdIds);
-          const tikTokRows = processTikTokData(tikTokAds, tikTokInsights, campaignObjectiveMap, campaignStatusMap);
+          const [tikTokInsights, tikTokThumbs] = await Promise.all([
+            fetchTikTokInsights(tikTokToken, tikTokAdIds),
+            fetchTikTokThumbnails(tikTokToken, tikTokAds)
+          ]);
+          const tikTokRows = processTikTokData(tikTokAds, tikTokInsights, campaignObjectiveMap, campaignStatusMap, tikTokThumbs);
           cleanRows.push(...tikTokRows);
           console.log(`TikTok: added ${tikTokRows.length} ads with spend/data`);
         }
@@ -1363,6 +1486,33 @@ app.get("/smart-capture", async (req, res) => {
     }
 
     computeAbsoluteScores(cleanRows);
+
+    // Also capture TikTok data in smart-capture
+    let tikTokCaptured = 0;
+    try {
+      const tikTokToken = await getTikTokToken();
+      if (tikTokToken) {
+        const [ttCampaignData, tikTokAds] = await Promise.all([
+          fetchTikTokCampaigns(tikTokToken),
+          fetchTikTokAds(tikTokToken)
+        ]);
+        const { campaignObjectiveMap = {}, campaignStatusMap = {} } = ttCampaignData;
+        if (tikTokAds.length > 0) {
+          const tikTokAdIds = tikTokAds.map(a => a.ad_id);
+          const [tikTokInsights, tikTokThumbs] = await Promise.all([
+            fetchTikTokInsights(tikTokToken, tikTokAdIds),
+            fetchTikTokThumbnails(tikTokToken, tikTokAds)
+          ]);
+          const tikTokRows = processTikTokData(tikTokAds, tikTokInsights, campaignObjectiveMap, campaignStatusMap, tikTokThumbs);
+          cleanRows.push(...tikTokRows);
+          tikTokCaptured = tikTokRows.length;
+          console.log(`Smart capture: added ${tikTokRows.length} TikTok ads`);
+        }
+      }
+    } catch (ttErr) {
+      console.warn("TikTok smart-capture skipped:", ttErr.message);
+    }
+
     await generateAdInsights(cleanRows);
 
     if (cleanRows.length > 0) {
@@ -1370,10 +1520,11 @@ app.get("/smart-capture", async (req, res) => {
       if (error) throw error;
     }
 
-    console.log(`Smart capture: ${cleanRows.length} captured, ${skippedCount} skipped (too recent), ${budgetSpentCount} skipped (not active)`);
+    console.log(`Smart capture: ${cleanRows.length} captured (${tikTokCaptured} TikTok), ${skippedCount} skipped (too recent), ${budgetSpentCount} skipped (not active)`);
     res.json({
       ok: true,
       captured: cleanRows.length,
+      tiktok_captured: tikTokCaptured,
       skipped: skippedCount,
       not_active_skipped: budgetSpentCount
     });
@@ -1632,6 +1783,13 @@ Rules:
     console.error("Report generation failed:", error.message);
     res.status(500).json({ error: "Report generation failed", details: error.message });
   }
+});
+
+// ====== HEALTH / KEEP-ALIVE ENDPOINT ======
+// Lightweight endpoint for waking the server from cold start.
+// Other devices hit this first to ensure the server is ready before fetching /live.
+app.get("/health", (req, res) => {
+  res.json({ ok: true, uptime: process.uptime(), ts: new Date().toISOString() });
 });
 
 app.listen(PORT, () => {

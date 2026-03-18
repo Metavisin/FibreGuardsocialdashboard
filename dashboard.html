@@ -803,12 +803,39 @@
 
   document.addEventListener('DOMContentLoaded', () => loadData());
 
+  // Fetch with timeout + retry (handles Render cold starts)
+  async function fetchWithRetry(url, opts = {}, retries = 2, timeoutMs = 90000) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const res = await fetch(url, { ...opts, signal: controller.signal });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      } catch (err) {
+        if (attempt < retries) {
+          console.warn(`Fetch attempt ${attempt + 1} failed for ${url}: ${err.message}, retrying...`);
+          await new Promise(r => setTimeout(r, 2000));
+        } else throw err;
+      }
+    }
+  }
+
   async function loadData() {
-    document.getElementById('dashboardContent').innerHTML = '<div class="loading"><div class="spinner"></div> Fetching live data from Meta...</div>';
+    const el = document.getElementById('dashboardContent');
+    el.innerHTML = '<div class="loading"><div class="spinner"></div> Waking up server &amp; fetching live data...</div>';
     try {
-      // Fetch live data from Meta API and historical data from Supabase in parallel
+      // Step 1: Wake up the server with a lightweight health check (handles Render cold start)
+      try {
+        await fetchWithRetry(`${SERVER_BASE}/health`, {}, 1, 60000);
+      } catch (e) { /* server might be slow but continue */ }
+
+      el.innerHTML = '<div class="loading"><div class="spinner"></div> Loading ad data from Meta &amp; TikTok...</div>';
+
+      // Step 2: Fetch live data and historical data in parallel
       const [liveRes, historicalData] = await Promise.all([
-        fetch(`${SERVER_BASE}/live`).then(r => r.json()),
+        fetchWithRetry(`${SERVER_BASE}/live`, {}, 2, 120000),
         sbFetch('ad_snapshots', 'select=*&order=captured_at.desc')
       ]);
 
@@ -821,7 +848,21 @@
       applyFilters();
       updateTimestamp();
     } catch (err) {
-      document.getElementById('dashboardContent').innerHTML = `<div class="empty"><h3>Failed to load</h3><p>${err.message}</p></div>`;
+      // If live data fails, try showing historical data from Supabase only
+      try {
+        const historicalData = await sbFetch('ad_snapshots', 'select=*&order=captured_at.desc');
+        allData = historicalData.filter(d => d.publisher_platform && d.publisher_platform !== 'unknown');
+        if (allData.length > 0) {
+          // Show the most recent snapshot as "live" data
+          const latestTime = allData[0]?.captured_at;
+          liveData = allData.filter(d => d.captured_at === latestTime);
+          populateFilters();
+          applyFilters();
+          updateTimestamp();
+          return;
+        }
+      } catch (e) { /* supabase also failed */ }
+      el.innerHTML = `<div class="empty"><h3>Failed to load</h3><p>${err.message}</p><p style="font-size:12px;color:var(--text-dim);">The server may be starting up. Please wait 30 seconds and click Refresh.</p></div>`;
     }
   }
 

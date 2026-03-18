@@ -258,7 +258,69 @@ async function fetchTikTokInsights(token, adIds) {
   } catch (err) { console.warn("TikTok insights failed:", JSON.stringify(err.response?.data || err.message)); return []; }
 }
 
-function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campaignStatusMap = {}) {
+// Fetch TikTok ad thumbnails from video/image creative info
+async function fetchTikTokThumbnails(token, ads) {
+  const thumbnails = {};
+  if (!token || ads.length === 0) return thumbnails;
+  try {
+    const videoIds = [];
+    const videoAdMap = {};
+    const imageAdMap = {};
+
+    for (const ad of ads) {
+      const adId = String(ad.ad_id);
+      if (ad.video_id) {
+        videoIds.push(ad.video_id);
+        if (!videoAdMap[ad.video_id]) videoAdMap[ad.video_id] = [];
+        videoAdMap[ad.video_id].push(adId);
+      }
+      if (ad.image_ids && ad.image_ids.length > 0) {
+        for (const imgId of ad.image_ids) {
+          if (!imageAdMap[imgId]) imageAdMap[imgId] = [];
+          imageAdMap[imgId].push(adId);
+        }
+      }
+      if (ad.avatar_icon_web_uri && !thumbnails[adId]) thumbnails[adId] = ad.avatar_icon_web_uri;
+    }
+
+    const uniqueVideoIds = [...new Set(videoIds)];
+    for (let i = 0; i < uniqueVideoIds.length; i += 60) {
+      try {
+        const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/file/video/ad/info/", {
+          params: { advertiser_id: token.advertiser_id, video_ids: JSON.stringify(uniqueVideoIds.slice(i, i + 60)) },
+          headers: { "Access-Token": token.access_token }
+        });
+        for (const v of (res.data?.data?.list || [])) {
+          const url = v.poster_url || v.video_cover_url || null;
+          if (url && videoAdMap[v.video_id]) {
+            for (const adId of videoAdMap[v.video_id]) thumbnails[adId] = url;
+          }
+        }
+      } catch (e) { console.warn(`TikTok video info batch failed: ${e.message}`); }
+    }
+
+    const uniqueImageIds = Object.keys(imageAdMap);
+    for (let i = 0; i < uniqueImageIds.length; i += 100) {
+      try {
+        const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/file/image/ad/info/", {
+          params: { advertiser_id: token.advertiser_id, image_ids: JSON.stringify(uniqueImageIds.slice(i, i + 100)) },
+          headers: { "Access-Token": token.access_token }
+        });
+        for (const img of (res.data?.data?.list || [])) {
+          const url = img.image_url || img.url || null;
+          if (url && imageAdMap[img.image_id]) {
+            for (const adId of imageAdMap[img.image_id]) if (!thumbnails[adId]) thumbnails[adId] = url;
+          }
+        }
+      } catch (e) { console.warn(`TikTok image info batch failed: ${e.message}`); }
+    }
+
+    console.log(`TikTok: fetched ${Object.keys(thumbnails).length} thumbnails`);
+  } catch (err) { console.warn("TikTok thumbnail fetch failed:", err.message); }
+  return thumbnails;
+}
+
+function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campaignStatusMap = {}, thumbnailMap = {}) {
   const adInfoMap = {};
   for (const ad of ads) {
     adInfoMap[String(ad.ad_id)] = {
@@ -349,7 +411,7 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
       link_clicks: clicks,
       ctr,
       awareness_score: null, engagement_score: null, traffic_score: null,
-      boost_recommendation: null, thumbnail_url: null
+      boost_recommendation: null, thumbnail_url: thumbnailMap[adId] || null
     });
   }
 
@@ -730,8 +792,11 @@ async function run() {
 
       if (ttAds.length > 0) {
         const ttAdIds = ttAds.map(a => a.ad_id);
-        const ttInsights = await fetchTikTokInsights(ttToken, ttAdIds);
-        const ttRows = processTikTokSnapshots(ttAds, ttInsights, campaignObjectiveMap, campaignStatusMap);
+        const [ttInsights, ttThumbs] = await Promise.all([
+          fetchTikTokInsights(ttToken, ttAdIds),
+          fetchTikTokThumbnails(ttToken, ttAds)
+        ]);
+        const ttRows = processTikTokSnapshots(ttAds, ttInsights, campaignObjectiveMap, campaignStatusMap, ttThumbs);
 
         // Only register ads that have data (not zero-spend ones)
         for (const row of ttRows) {
