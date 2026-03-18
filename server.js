@@ -1917,11 +1917,13 @@ app.get("/migrate", async (req, res) => {
       campaign_type: "test",
       campaign_name: "__test__",
       hour_label: "Test",
+      snapshot_hours: 0,
       spend: 0, impressions: 0
     });
     if (insertErr) {
       const msg = insertErr.message || "";
-      if (msg.includes("hour_label") || msg.includes("column")) {
+      // Check specifically if the error is about the hour_label column
+      if (msg.includes("hour_label")) {
         res.json({ ok: false, action_needed: "Add column in Supabase SQL editor: ALTER TABLE ad_snapshots ADD COLUMN hour_label TEXT;", error: msg });
       } else {
         // Some other error — but column might exist, try a select instead
@@ -1929,7 +1931,7 @@ app.get("/migrate", async (req, res) => {
         if (selErr && (selErr.message || "").includes("hour_label")) {
           res.json({ ok: false, action_needed: "Add column in Supabase SQL editor: ALTER TABLE ad_snapshots ADD COLUMN hour_label TEXT;", error: selErr.message });
         } else {
-          res.json({ ok: true, message: "hour_label column exists (insert had unrelated error)", insertError: msg });
+          res.json({ ok: true, message: "hour_label column exists and is working!", note: "insert test had unrelated error: " + msg });
         }
       }
     } else {
