@@ -27,6 +27,11 @@ if (!META_ACCESS_TOKEN || !META_AD_ACCOUNT_ID || !SUPABASE_URL || !SUPABASE_SERV
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+// Debug: log masked Supabase URL to verify correct project
+const urlHost = new URL(SUPABASE_URL).hostname.split('.')[0];
+console.log(`🔗 Supabase project: ${urlHost}`);
+console.log(`🔑 Service key starts with: ${SUPABASE_SERVICE_ROLE_KEY.substring(0, 20)}...`);
+
 // ====== UTILITIES ======
 
 function safeNumber(value) {
@@ -843,8 +848,18 @@ async function run() {
 
   // 8. Insert into Supabase
   if (rowsToInsert.length > 0) {
-    const { error } = await supabase.from("ad_snapshots").insert(rowsToInsert);
-    if (error) throw error;
+    console.log(`📝 Inserting ${rowsToInsert.length} Meta rows into ad_snapshots...`);
+    console.log(`📝 Sample row keys: ${Object.keys(rowsToInsert[0]).join(', ')}`);
+    const { data: insertedData, error } = await supabase.from("ad_snapshots").insert(rowsToInsert).select();
+    if (error) {
+      console.error(`❌ Meta insert ERROR:`, JSON.stringify(error));
+      throw error;
+    }
+    console.log(`📝 Insert response: ${insertedData ? insertedData.length + ' rows returned' : 'NO DATA RETURNED (insertedData is null)'}`);
+
+    // Verify data actually landed
+    const { count, error: countErr } = await supabase.from("ad_snapshots").select("*", { count: "exact", head: true });
+    console.log(`🔍 Verification: ad_snapshots now has ${count} rows (error: ${countErr ? countErr.message : 'none'})`);
 
     // Update snapshot counts
     const capturedAdIds = [...new Set(rowsToInsert.map(r => r.ad_id))];
@@ -913,9 +928,12 @@ async function run() {
         }
 
         if (ttRowsToInsert.length > 0) {
-          const { error: ttErr } = await supabase.from("ad_snapshots").insert(ttRowsToInsert);
-          if (ttErr) console.warn("TikTok snapshot insert failed:", ttErr.message);
-          else {
+          console.log(`📝 Inserting ${ttRowsToInsert.length} TikTok rows into ad_snapshots...`);
+          const { data: ttInsertedData, error: ttErr } = await supabase.from("ad_snapshots").insert(ttRowsToInsert).select();
+          if (ttErr) {
+            console.warn("TikTok snapshot insert failed:", JSON.stringify(ttErr));
+          } else {
+            console.log(`📝 TikTok insert response: ${ttInsertedData ? ttInsertedData.length + ' rows returned' : 'NO DATA RETURNED'}`);
             tikTokCaptured = ttRowsToInsert.length;
             for (const adId of [...new Set(ttRowsToInsert.map(r => r.ad_id))]) {
               await incrementSnapshotCount(adId);
