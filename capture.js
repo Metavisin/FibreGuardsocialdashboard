@@ -696,6 +696,30 @@ async function run() {
   console.log(`FibreGuard Capture — ${new Date().toISOString()}`);
   console.log(`${"=".repeat(60)}\n`);
 
+  // 0. Connectivity test: verify we can write to ad_snapshots
+  const testRow = {
+    captured_at: new Date().toISOString(),
+    ad_id: '__connectivity_test__',
+    ad_name: '__test__',
+    publisher_platform: 'test',
+    campaign_type: 'test',
+    campaign_name: '__test__',
+    hour_label: 'Test',
+    snapshot_hours: 0,
+    spend: 0,
+    impressions: 0
+  };
+  const { data: testResult, error: testError } = await supabase.from("ad_snapshots").insert(testRow).select();
+  if (testError) {
+    console.error(`❌ CONNECTIVITY TEST FAILED — cannot write to ad_snapshots:`, JSON.stringify(testError));
+    console.error(`This likely means the SUPABASE_SERVICE_ROLE_KEY is wrong (possibly the anon key?) or RLS is blocking inserts.`);
+  } else {
+    console.log(`✅ Connectivity test PASSED — inserted test row with id: ${testResult?.[0]?.id}`);
+    // Clean up the test row
+    await supabase.from("ad_snapshots").delete().eq("ad_id", "__connectivity_test__");
+    console.log(`🧹 Cleaned up test row`);
+  }
+
   // 1. Get currently active ads from Meta
   const activeAds = await fetchActiveAds();
   const activeAdIds = activeAds.map(a => a.ad_id);
@@ -811,8 +835,10 @@ async function run() {
 
     // Set first_data_at if this is the first time we see real data
     let firstDataAt = tracked.first_data_at;
+    let justStartedClock = false;
     if (!firstDataAt) {
       firstDataAt = await setFirstDataAt(row.ad_id);
+      justStartedClock = true; // First time seeing data — always capture
     }
 
     // Calculate hours since first real data (the TRUE clock for this ad)
@@ -821,16 +847,16 @@ async function run() {
     // Determine capture interval: hourly for first 12h, then every 24h
     const captureIntervalHours = hoursSinceFirstData <= 12 ? 1 : 24;
 
-    // Check throttling
+    // Check throttling — but ALWAYS capture if this is the first time we see data
     const lastSnapshotAt = tracked.last_snapshot_at;
     const hoursSinceLastSnapshot = lastSnapshotAt ? hoursAgo(lastSnapshotAt) : Infinity;
 
-    if (hoursSinceLastSnapshot >= captureIntervalHours * 0.8) {
+    if (justStartedClock || hoursSinceLastSnapshot >= captureIntervalHours * 0.8) {
       // Set correct hour label based on hours since first data
       row.snapshot_hours = Math.round(hoursSinceFirstData);
       row.hour_label = computeHourLabel(hoursSinceFirstData);
       rowsToInsert.push(row);
-      console.log(`📸 Capturing "${row.ad_name}" (${row.publisher_platform}) — ${round(hoursSinceFirstData, 1)}h since first data, label: "${row.hour_label}", interval: ${captureIntervalHours}h`);
+      console.log(`📸 Capturing "${row.ad_name}" (${row.publisher_platform}) — ${round(hoursSinceFirstData, 1)}h since first data, label: "${row.hour_label}", interval: ${captureIntervalHours}h${justStartedClock ? ' [FIRST CAPTURE]' : ''}`);
     } else {
       console.log(`⏭️  Skipping "${row.ad_name}" — ${round(hoursSinceFirstData, 1)}h since first data, next capture in ${round(captureIntervalHours - hoursSinceLastSnapshot, 1)}h`);
     }
@@ -901,27 +927,29 @@ async function run() {
         for (const row of ttRows) {
           await upsertTracking(row.ad_id, row.ad_name || "", row.campaign_name || "");
 
-          // Set first_data_at if this is the first time seeing real data
+          // Check if first_data_at already exists before setting it
+          const { data: ttTrackCheck } = await supabase
+            .from("ad_tracking")
+            .select("first_data_at, last_snapshot_at")
+            .eq("ad_id", row.ad_id)
+            .single();
+          const hadFirstDataBefore = !!ttTrackCheck?.first_data_at;
           const firstDataAt = await setFirstDataAt(row.ad_id);
+          const justStartedClock = !hadFirstDataBefore && !!firstDataAt;
           const hoursSinceFirstData = firstDataAt ? hoursAgo(firstDataAt) : 0;
 
           // Determine capture interval: hourly for first 12h, then every 24h
           const captureIntervalHours = hoursSinceFirstData <= 12 ? 1 : 24;
 
-          // Check throttling
-          const { data: ttTracked } = await supabase
-            .from("ad_tracking")
-            .select("last_snapshot_at")
-            .eq("ad_id", row.ad_id)
-            .single();
-          const hoursSinceLastSnapshot = ttTracked?.last_snapshot_at ? hoursAgo(ttTracked.last_snapshot_at) : Infinity;
+          // Check throttling — but ALWAYS capture if this is the first time we see data
+          const hoursSinceLastSnapshot = ttTrackCheck?.last_snapshot_at ? hoursAgo(ttTrackCheck.last_snapshot_at) : Infinity;
 
-          if (hoursSinceLastSnapshot >= captureIntervalHours * 0.8) {
+          if (justStartedClock || hoursSinceLastSnapshot >= captureIntervalHours * 0.8) {
             // Update hour label based on first_data_at (not ad creation time)
             row.snapshot_hours = Math.round(hoursSinceFirstData);
             row.hour_label = computeHourLabel(hoursSinceFirstData);
             ttRowsToInsert.push(row);
-            console.log(`📸 TikTok: Capturing "${row.ad_name}" — ${round(hoursSinceFirstData, 1)}h since first data, label: "${row.hour_label}"`);
+            console.log(`📸 TikTok: Capturing "${row.ad_name}" — ${round(hoursSinceFirstData, 1)}h since first data, label: "${row.hour_label}"${justStartedClock ? ' [FIRST CAPTURE]' : ''}`);
           } else {
             console.log(`⏭️  TikTok: Skipping "${row.ad_name}" — next capture in ${round(captureIntervalHours - hoursSinceLastSnapshot, 1)}h`);
           }
@@ -952,10 +980,8 @@ async function run() {
   // 10. Summary
   console.log("\n--- Summary ---");
   console.log(`Meta active ads: ${activeAds.length}`);
-  console.log(`Meta snapshots captured: ${cleanRows.length}`);
-  console.log(`Meta ads skipped: ${refreshedTracking.length - adsToCaptureIds.length}`);
-  console.log(`Meta ads marked inactive: ${nowInactiveIds.length}`);
-  if (tikTokCaptured > 0) console.log(`TikTok snapshots captured: ${tikTokCaptured}`);
+  console.log(`Meta snapshots captured: ${rowsToInsert.length}`);
+  console.log(`TikTok snapshots captured: ${tikTokCaptured}`);
 }
 
 // Run
