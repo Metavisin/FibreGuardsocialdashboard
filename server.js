@@ -1905,18 +1905,11 @@ app.get("/health", (req, res) => {
   res.json({ ok: true, uptime: process.uptime(), ts: new Date().toISOString() });
 });
 
-// One-time migration: add hour_label column
+// One-time migration: test if hour_label column exists
 app.get("/migrate", async (req, res) => {
   try {
-    const resp = await axios.post(
-      `${SUPABASE_URL}/rest/v1/rpc/`,
-      {},
-      { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` } }
-    );
-    // Fallback: just try a direct SQL via the Supabase management API
-    // The simplest approach is to insert a test row with hour_label
-    // If it fails, the column doesn't exist yet
-    const testInsert = await supabase.from("ad_snapshots").insert({
+    // Try inserting a test row with hour_label to see if the column exists
+    const { error: insertErr } = await supabase.from("ad_snapshots").insert({
       captured_at: new Date().toISOString(),
       ad_id: "__migration_test__",
       ad_name: "__test__",
@@ -1926,12 +1919,23 @@ app.get("/migrate", async (req, res) => {
       hour_label: "Test",
       spend: 0, impressions: 0
     });
-    if (testInsert.error && testInsert.error.message.includes("hour_label")) {
-      res.json({ ok: false, message: "Column 'hour_label' does not exist. Please add it manually in Supabase dashboard: ALTER TABLE ad_snapshots ADD COLUMN hour_label TEXT;", error: testInsert.error.message });
+    if (insertErr) {
+      const msg = insertErr.message || "";
+      if (msg.includes("hour_label") || msg.includes("column")) {
+        res.json({ ok: false, action_needed: "Add column in Supabase SQL editor: ALTER TABLE ad_snapshots ADD COLUMN hour_label TEXT;", error: msg });
+      } else {
+        // Some other error — but column might exist, try a select instead
+        const { data, error: selErr } = await supabase.from("ad_snapshots").select("hour_label").limit(1);
+        if (selErr && (selErr.message || "").includes("hour_label")) {
+          res.json({ ok: false, action_needed: "Add column in Supabase SQL editor: ALTER TABLE ad_snapshots ADD COLUMN hour_label TEXT;", error: selErr.message });
+        } else {
+          res.json({ ok: true, message: "hour_label column exists (insert had unrelated error)", insertError: msg });
+        }
+      }
     } else {
-      // Clean up test row
+      // Success — clean up test row
       await supabase.from("ad_snapshots").delete().eq("ad_id", "__migration_test__");
-      res.json({ ok: true, message: "hour_label column exists and is working" });
+      res.json({ ok: true, message: "hour_label column exists and is working!" });
     }
   } catch (err) {
     res.json({ ok: false, error: err.message });
