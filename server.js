@@ -575,41 +575,49 @@ async function getTikTokToken() {
   return data;
 }
 
+async function fetchTikTokCampaigns(token) {
+  if (!token) return {};
+  try {
+    // Fetch ALL campaigns (not just enabled) to get objectives for completed ads too
+    const campaignObjectiveMap = {};
+    const campaignStatusMap = {};
+    for (const status of ["CAMPAIGN_STATUS_ENABLE", "CAMPAIGN_STATUS_DISABLE", "CAMPAIGN_STATUS_DELETE"]) {
+      try {
+        const campRes = await axios.get("https://business-api.tiktok.com/open_api/v1.3/campaign/get/", {
+          params: {
+            advertiser_id: token.advertiser_id,
+            page_size: 200,
+            filtering: JSON.stringify({ status })
+          },
+          headers: { "Access-Token": token.access_token }
+        });
+        const campaigns = campRes.data?.data?.list || [];
+        for (const c of campaigns) {
+          campaignObjectiveMap[c.campaign_id] = c.objective_type || c.objective || "";
+          campaignStatusMap[c.campaign_id] = c.status || c.operation_status || status;
+        }
+      } catch (e) { /* skip this status */ }
+    }
+    console.log(`TikTok: loaded ${Object.keys(campaignObjectiveMap).length} campaigns with objectives`);
+    return { campaignObjectiveMap, campaignStatusMap };
+  } catch (err) {
+    console.warn("TikTok campaign fetch failed:", err.response?.data || err.message);
+    return { campaignObjectiveMap: {}, campaignStatusMap: {} };
+  }
+}
+
 async function fetchTikTokAds(token) {
   if (!token) return [];
   try {
-    // First fetch campaigns to get objectives
-    const campRes = await axios.get("https://business-api.tiktok.com/open_api/v1.3/campaign/get/", {
-      params: {
-        advertiser_id: token.advertiser_id,
-        page_size: 200,
-        filtering: JSON.stringify({ status: "CAMPAIGN_STATUS_ENABLE" })
-      },
-      headers: { "Access-Token": token.access_token }
-    });
-    const campaigns = campRes.data?.data?.list || [];
-    const campaignObjectiveMap = {};
-    for (const c of campaigns) {
-      campaignObjectiveMap[c.campaign_id] = c.objective_type || c.objective || "";
-    }
-    console.log(`TikTok: found ${campaigns.length} active campaigns, objectives:`, JSON.stringify(campaignObjectiveMap));
-
-    // Then fetch active ads
     const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
       params: {
         advertiser_id: token.advertiser_id,
-        page_size: 200,
-        filtering: JSON.stringify({ status: "AD_STATUS_DELIVERY_OK" })
+        page_size: 200
       },
       headers: { "Access-Token": token.access_token }
     });
     const ads = res.data?.data?.list || [];
-    console.log(`TikTok: found ${ads.length} active ads`);
-
-    // Attach objective from campaign to each ad
-    for (const ad of ads) {
-      ad._objective = campaignObjectiveMap[ad.campaign_id] || "";
-    }
+    console.log(`TikTok: found ${ads.length} total ads`);
     return ads;
   } catch (err) {
     console.warn("TikTok ad fetch failed:", err.response?.data || err.message);
@@ -675,119 +683,104 @@ function detectTikTokCampaignType(campaignName = "", objective = "") {
   return "awareness";
 }
 
-function processTikTokData(ads, insights) {
+function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignStatusMap = {}) {
   // Build ad info map from ad/get response
   const adInfoMap = {};
   for (const ad of ads) {
+    const adStatus = ad.status || ad.operation_status || "";
     adInfoMap[String(ad.ad_id)] = {
       ad_name: ad.ad_name || ad.ad_text || "",
       campaign_name: ad.campaign_name || "",
       campaign_id: ad.campaign_id || null,
       adgroup_name: ad.adgroup_name || "",
-      objective: ad._objective || ad.objective_type || ad.objective || "",
-      created_time: ad.create_time || null,
-      status: "ACTIVE"
+      objective: campaignObjectiveMap[ad.campaign_id] || ad.objective_type || ad.objective || "",
+      campaignStatus: campaignStatusMap[ad.campaign_id] || "",
+      adStatus: adStatus,
+      created_time: ad.create_time || null
     };
   }
-  console.log(`TikTok processTikTokData: ${ads.length} ads, ${insights.length} insight rows`);
 
   const rows = [];
 
-  // If we have insights, use them
-  if (insights.length > 0) {
-    for (const item of insights) {
-      const metrics = item.metrics || {};
-      const dimensions = item.dimensions || {};
-      const adId = String(dimensions.ad_id || "");
-      const adInfo = adInfoMap[adId] || {};
+  for (const item of insights) {
+    const metrics = item.metrics || {};
+    const dimensions = item.dimensions || {};
+    const adId = String(dimensions.ad_id || "");
+    const adInfo = adInfoMap[adId] || {};
 
-      const campaignType = detectTikTokCampaignType(adInfo.campaign_name, adInfo.objective);
-      const spend = safeNumber(metrics.spend);
-      const impressions = safeNumber(metrics.impressions);
-      const reach = safeNumber(metrics.reach);
-      const clicks = safeNumber(metrics.clicks);
-      const videoViews = safeNumber(metrics.video_play_actions);
-      const video2s = safeNumber(metrics.video_watched_2s);
-      const likes = safeNumber(metrics.likes);
-      const comments = safeNumber(metrics.comments);
-      const shares = safeNumber(metrics.shares);
-      const frequency = safeNumber(metrics.frequency);
-      const landingPageViews = safeNumber(metrics.landing_page_view);
+    const spend = safeNumber(metrics.spend);
+    const impressions = safeNumber(metrics.impressions);
 
-      const cpm = safeNumber(metrics.cpm);
-      const cpc = safeNumber(metrics.cpc);
-      const ctr = safeNumber(metrics.ctr);
-      // 2-second video view rate
-      const viewRate = impressions > 0 ? round((video2s / impressions) * 100) : 0;
-      // LPVR = landing page views / clicks
-      const lpvr = clicks > 0 ? round(landingPageViews / clicks, 4) : 0;
-
-      console.log(`TikTok ad ${adId}: campaign="${adInfo.campaign_name}", obj="${adInfo.objective}", type=${campaignType}, spend=${spend}, impressions=${impressions}, reach=${reach}`);
-
-      rows.push({
-        captured_at: new Date().toISOString(),
-        campaign_type: campaignType,
-        campaign_name: adInfo.campaign_name || "",
-        campaign_id: adInfo.campaign_id || null,
-        adset_name: adInfo.adgroup_name || "",
-        ad_name: adInfo.ad_name || "",
-        ad_id: adId,
-        publisher_platform: "tiktok",
-        ad_status: "ACTIVE",
-        ad_created_time: adInfo.created_time || null,
-        date_start: null,
-        date_stop: null,
-        impressions,
-        reach,
-        cpm,
-        spend,
-        frequency,
-        cost_per_click: cpc,
-        landing_page_views: landingPageViews,
-        lpvr,
-        video_3s_views: videoViews,
-        video_3s_view_rate: viewRate,
-        likes,
-        comments,
-        shares,
-        saves: 0, // TikTok favorites not available via reporting API
-        link_clicks: clicks,
-        ctr,
-        awareness_score: null,
-        engagement_score: null,
-        traffic_score: null,
-        boost_recommendation: null,
-        thumbnail_url: null
-      });
+    // SKIP ads with zero spend AND zero impressions — they never ran
+    if (spend === 0 && impressions === 0) {
+      console.log(`TikTok ad ${adId}: skipping (no spend, no impressions)`);
+      continue;
     }
-  } else {
-    // No insights yet — still show ads with zero metrics so they appear in dashboard
-    for (const [adId, adInfo] of Object.entries(adInfoMap)) {
-      const campaignType = detectTikTokCampaignType(adInfo.campaign_name, adInfo.objective);
-      console.log(`TikTok ad ${adId} (no insights yet): campaign="${adInfo.campaign_name}", type=${campaignType}`);
-      rows.push({
-        captured_at: new Date().toISOString(),
-        campaign_type: campaignType,
-        campaign_name: adInfo.campaign_name || "",
-        campaign_id: adInfo.campaign_id || null,
-        adset_name: adInfo.adgroup_name || "",
-        ad_name: adInfo.ad_name || "",
-        ad_id: adId,
-        publisher_platform: "tiktok",
-        ad_status: "ACTIVE",
-        ad_created_time: adInfo.created_time || null,
-        date_start: null, date_stop: null,
-        impressions: 0, reach: 0, cpm: 0, spend: 0, frequency: 0,
-        cost_per_click: 0, landing_page_views: 0, lpvr: 0,
-        video_3s_views: 0, video_3s_view_rate: 0,
-        likes: 0, comments: 0, shares: 0, saves: 0,
-        link_clicks: 0, ctr: 0,
-        awareness_score: null, engagement_score: null, traffic_score: null,
-        boost_recommendation: null, thumbnail_url: null
-      });
-    }
+
+    const campaignType = detectTikTokCampaignType(adInfo.campaign_name, adInfo.objective);
+
+    // Determine ad status: ACTIVE if campaign is enabled + ad is delivering, COMPLETED otherwise
+    const campStatus = (adInfo.campaignStatus || "").toUpperCase();
+    const rawAdStatus = (adInfo.adStatus || "").toUpperCase();
+    const isActive = campStatus.includes("ENABLE") &&
+      (rawAdStatus.includes("DELIVERY_OK") || rawAdStatus.includes("ENABLE") || rawAdStatus === "AD_STATUS_DELIVERY_OK");
+    const adStatus = isActive ? "ACTIVE" : "COMPLETED";
+
+    const reach = safeNumber(metrics.reach);
+    const clicks = safeNumber(metrics.clicks);
+    const videoViews = safeNumber(metrics.video_play_actions);
+    const video2s = safeNumber(metrics.video_watched_2s);
+    const likes = safeNumber(metrics.likes);
+    const comments = safeNumber(metrics.comments);
+    const shares = safeNumber(metrics.shares);
+    const frequency = safeNumber(metrics.frequency);
+    const landingPageViews = safeNumber(metrics.landing_page_view);
+    const cpm = safeNumber(metrics.cpm);
+    const cpc = safeNumber(metrics.cpc);
+    const ctr = safeNumber(metrics.ctr);
+    const viewRate = impressions > 0 ? round((video2s / impressions) * 100) : 0;
+    const lpvr = clicks > 0 ? round(landingPageViews / clicks, 4) : 0;
+
+    console.log(`TikTok ad ${adId}: campaign="${adInfo.campaign_name}", obj="${adInfo.objective}", type=${campaignType}, status=${adStatus}, spend=${spend}, reach=${reach}`);
+
+    rows.push({
+      captured_at: new Date().toISOString(),
+      campaign_type: campaignType,
+      campaign_name: adInfo.campaign_name || "",
+      campaign_id: adInfo.campaign_id || null,
+      adset_name: adInfo.adgroup_name || "",
+      ad_name: adInfo.ad_name || "",
+      ad_id: adId,
+      publisher_platform: "tiktok",
+      ad_status: adStatus,
+      ad_created_time: adInfo.created_time || null,
+      date_start: null,
+      date_stop: null,
+      impressions,
+      reach,
+      cpm,
+      spend,
+      frequency,
+      cost_per_click: cpc,
+      landing_page_views: landingPageViews,
+      lpvr,
+      video_3s_views: videoViews,
+      video_3s_view_rate: viewRate,
+      likes,
+      comments,
+      shares,
+      saves: 0,
+      link_clicks: clicks,
+      ctr,
+      awareness_score: null,
+      engagement_score: null,
+      traffic_score: null,
+      boost_recommendation: null,
+      thumbnail_url: null
+    });
   }
 
+  console.log(`TikTok: ${rows.length} ads with actual data (filtered from ${insights.length} insight rows)`);
   computeAbsoluteScores(rows);
   return rows;
 }
@@ -1000,17 +993,23 @@ app.get("/live", async (req, res) => {
 
     await generateAdInsights(cleanRows);
 
-    // Fetch TikTok data in parallel (non-blocking if not configured)
+    // Fetch TikTok data (non-blocking if not configured)
     try {
       const tikTokToken = await getTikTokToken();
       if (tikTokToken) {
-        const tikTokAds = await fetchTikTokAds(tikTokToken);
+        // Fetch campaigns (for objectives + statuses) and ads in parallel
+        const [ttCampaignData, tikTokAds] = await Promise.all([
+          fetchTikTokCampaigns(tikTokToken),
+          fetchTikTokAds(tikTokToken)
+        ]);
+        const { campaignObjectiveMap = {}, campaignStatusMap = {} } = ttCampaignData;
+
         if (tikTokAds.length > 0) {
           const tikTokAdIds = tikTokAds.map(a => a.ad_id);
           const tikTokInsights = await fetchTikTokInsights(tikTokToken, tikTokAdIds);
-          const tikTokRows = processTikTokData(tikTokAds, tikTokInsights);
+          const tikTokRows = processTikTokData(tikTokAds, tikTokInsights, campaignObjectiveMap, campaignStatusMap);
           cleanRows.push(...tikTokRows);
-          console.log(`TikTok: added ${tikTokRows.length} ads`);
+          console.log(`TikTok: added ${tikTokRows.length} ads with spend/data`);
         }
       }
     } catch (ttErr) {
