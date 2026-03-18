@@ -68,6 +68,11 @@ app.get("/", async (req, res) => {
   res.sendFile(path.join(__dirname, "dashboard.html"));
 });
 
+// V2 preview — glassmorphism redesign
+app.get("/v2", (req, res) => {
+  res.sendFile(path.join(__dirname, "dashboard-v2.html"));
+});
+
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
 const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID;
 const SUPABASE_URL = process.env.SUPABASE_URL;
