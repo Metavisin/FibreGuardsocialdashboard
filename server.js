@@ -18,8 +18,53 @@ app.use(express.json());
 // Serve static assets (logo, etc.)
 app.use("/assets", express.static(path.join(__dirname)));
 
-// Serve the dashboard at root URL
-app.get("/", (req, res) => {
+// Serve the dashboard at root URL — also handles TikTok OAuth callback
+app.get("/", async (req, res) => {
+  const authCode = req.query.auth_code;
+  if (authCode && TIKTOK_APP_ID && TIKTOK_APP_SECRET) {
+    try {
+      // Exchange auth_code for access token
+      const tokenRes = await axios.post("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
+        app_id: TIKTOK_APP_ID,
+        secret: TIKTOK_APP_SECRET,
+        auth_code: authCode,
+        grant_type: "auth_code"
+      });
+      const tokenData = tokenRes.data?.data;
+      if (!tokenData?.access_token) {
+        console.error("TikTok token exchange failed:", tokenRes.data);
+        return res.send(`<html><body style="background:#0D1117;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;"><div style="text-align:center;"><h2>TikTok Authorization Failed</h2><p>${JSON.stringify(tokenRes.data?.message || tokenRes.data)}</p><a href="/" style="color:#53B7E8;">Back to Dashboard</a></div></body></html>`);
+      }
+
+      // Get advertiser accounts
+      const advRes = await axios.get("https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/", {
+        params: { app_id: TIKTOK_APP_ID, secret: TIKTOK_APP_SECRET },
+        headers: { "Access-Token": tokenData.access_token }
+      });
+      const advertisers = advRes.data?.data?.list || [];
+
+      // Store token for each advertiser
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h
+      for (const adv of advertisers) {
+        const { error } = await supabase.from("tiktok_tokens").upsert({
+          advertiser_id: adv.advertiser_id,
+          advertiser_name: adv.advertiser_name || null,
+          access_token: tokenData.access_token,
+          refresh_token: tokenData.refresh_token || null,
+          token_expires_at: expiresAt,
+          updated_at: new Date().toISOString()
+        }, { onConflict: "advertiser_id" });
+        if (error) console.error("Failed to store TikTok token:", error.message);
+        else console.log(`TikTok authorized: ${adv.advertiser_name} (${adv.advertiser_id})`);
+      }
+
+      // Redirect to clean dashboard URL
+      return res.send(`<html><body style="background:#0D1117;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;"><div style="text-align:center;"><h2 style="color:#34D399;">TikTok Connected!</h2><p>Authorized ${advertisers.length} advertiser account${advertisers.length !== 1 ? 's' : ''}.</p><p>TikTok ads will now appear on your dashboard.</p><a href="/" style="color:#53B7E8;font-size:18px;">Go to Dashboard &rarr;</a></div></body></html>`);
+    } catch (err) {
+      console.error("TikTok OAuth error:", err.response?.data || err.message);
+      return res.send(`<html><body style="background:#0D1117;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;"><div style="text-align:center;"><h2>TikTok Authorization Error</h2><p>${err.message}</p><a href="/" style="color:#53B7E8;">Back to Dashboard</a></div></body></html>`);
+    }
+  }
   res.sendFile(path.join(__dirname, "dashboard.html"));
 });
 
@@ -28,6 +73,8 @@ const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const TIKTOK_APP_ID = process.env.TIKTOK_APP_ID;
+const TIKTOK_APP_SECRET = process.env.TIKTOK_APP_SECRET;
 const PORT = process.env.PORT || 3000;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -486,6 +533,187 @@ function mapMetaStatus(deliveryStatus) {
   }
 }
 
+// ====== TIKTOK API FUNCTIONS ======
+
+async function getTikTokToken() {
+  const { data, error } = await supabase
+    .from("tiktok_tokens")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error || !data) return null;
+
+  // Check if token needs refresh (expires within 1 hour)
+  const expiresAt = new Date(data.token_expires_at);
+  if (expiresAt < new Date(Date.now() + 60 * 60 * 1000) && data.refresh_token && TIKTOK_APP_ID && TIKTOK_APP_SECRET) {
+    try {
+      const res = await axios.post("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
+        app_id: TIKTOK_APP_ID,
+        secret: TIKTOK_APP_SECRET,
+        grant_type: "refresh_token",
+        refresh_token: data.refresh_token
+      });
+      const newToken = res.data?.data;
+      if (newToken?.access_token) {
+        const newExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        await supabase.from("tiktok_tokens").update({
+          access_token: newToken.access_token,
+          refresh_token: newToken.refresh_token || data.refresh_token,
+          token_expires_at: newExpires,
+          updated_at: new Date().toISOString()
+        }).eq("advertiser_id", data.advertiser_id);
+        console.log("TikTok token refreshed successfully");
+        return { ...data, access_token: newToken.access_token };
+      }
+    } catch (err) {
+      console.warn("TikTok token refresh failed:", err.message);
+    }
+  }
+
+  return data;
+}
+
+async function fetchTikTokAds(token) {
+  if (!token) return [];
+  try {
+    const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
+      params: {
+        advertiser_id: token.advertiser_id,
+        page_size: 200,
+        filtering: JSON.stringify({ status: "AD_STATUS_DELIVERY_OK" })
+      },
+      headers: { "Access-Token": token.access_token }
+    });
+    return res.data?.data?.list || [];
+  } catch (err) {
+    console.warn("TikTok ad fetch failed:", err.message);
+    return [];
+  }
+}
+
+async function fetchTikTokInsights(token, adIds) {
+  if (!token || adIds.length === 0) return [];
+  try {
+    // Get today's date and 90 days ago for reporting
+    const endDate = new Date().toISOString().split("T")[0];
+    const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+    const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
+      params: {
+        advertiser_id: token.advertiser_id,
+        report_type: "BASIC",
+        data_level: "AUCTION_AD",
+        dimensions: JSON.stringify(["ad_id"]),
+        metrics: JSON.stringify([
+          "spend", "impressions", "reach", "cpm", "cpc", "ctr",
+          "clicks", "video_play_actions", "video_watched_6s",
+          "likes", "comments", "shares", "follows", "frequency",
+          "campaign_name", "adgroup_name", "ad_name"
+        ]),
+        start_date: startDate,
+        end_date: endDate,
+        filtering: JSON.stringify({ ad_ids: adIds }),
+        page_size: 200
+      },
+      headers: { "Access-Token": token.access_token }
+    });
+    return res.data?.data?.list || [];
+  } catch (err) {
+    console.warn("TikTok insights fetch failed:", err.message);
+    return [];
+  }
+}
+
+function detectTikTokCampaignType(campaignName = "", objective = "") {
+  const text = `${campaignName} ${objective}`.toLowerCase();
+  if (text.includes("awareness") || text.includes("reach") || text.includes("video_views") || text.includes("entertaining")) return "awareness";
+  if (text.includes("traffic") || text.includes("clicks") || text.includes("website_visits")) return "traffic";
+  if (text.includes("engagement") || text.includes("community") || text.includes("education") || text.includes("educational")) return "engagement";
+  return "awareness"; // default
+}
+
+function processTikTokData(ads, insights) {
+  // Build ad info map
+  const adInfoMap = {};
+  for (const ad of ads) {
+    adInfoMap[ad.ad_id] = {
+      ad_name: ad.ad_name || ad.ad_text || "",
+      campaign_name: ad.campaign_name || "",
+      campaign_id: ad.campaign_id || null,
+      adgroup_name: ad.adgroup_name || "",
+      objective: ad.objective_type || ad.objective || "",
+      created_time: ad.create_time || null,
+      status: "ACTIVE"
+    };
+  }
+
+  const rows = [];
+  for (const item of insights) {
+    const metrics = item.metrics || {};
+    const dimensions = item.dimensions || {};
+    const adId = dimensions.ad_id || null;
+    const adInfo = adInfoMap[adId] || {};
+
+    const campaignType = detectTikTokCampaignType(adInfo.campaign_name || metrics.campaign_name, adInfo.objective);
+    const spend = safeNumber(metrics.spend);
+    const impressions = safeNumber(metrics.impressions);
+    const reach = safeNumber(metrics.reach);
+    const clicks = safeNumber(metrics.clicks);
+    const videoViews = safeNumber(metrics.video_play_actions);
+    const video6s = safeNumber(metrics.video_watched_6s);
+    const likes = safeNumber(metrics.likes);
+    const comments = safeNumber(metrics.comments);
+    const shares = safeNumber(metrics.shares);
+    const frequency = safeNumber(metrics.frequency);
+
+    const cpm = safeNumber(metrics.cpm);
+    const cpc = safeNumber(metrics.cpc);
+    const ctr = safeNumber(metrics.ctr);
+    const viewRate = impressions > 0 ? round((video6s / impressions) * 100) : 0;
+
+    rows.push({
+      captured_at: new Date().toISOString(),
+      campaign_type: campaignType,
+      campaign_name: adInfo.campaign_name || metrics.campaign_name || "",
+      campaign_id: adInfo.campaign_id || null,
+      adset_name: adInfo.adgroup_name || metrics.adgroup_name || "",
+      ad_name: adInfo.ad_name || metrics.ad_name || "",
+      ad_id: adId,
+      publisher_platform: "tiktok",
+      ad_status: "ACTIVE",
+      ad_created_time: adInfo.created_time || null,
+      date_start: null,
+      date_stop: null,
+      impressions,
+      reach,
+      cpm,
+      spend,
+      frequency,
+      cost_per_click: cpc,
+      landing_page_views: 0,
+      lpvr: 0,
+      video_3s_views: videoViews,
+      video_3s_view_rate: viewRate,
+      likes,
+      comments,
+      shares,
+      saves: 0, // TikTok API doesn't expose saves
+      link_clicks: clicks,
+      ctr,
+      awareness_score: null,
+      engagement_score: null,
+      traffic_score: null,
+      boost_recommendation: null,
+      thumbnail_url: null
+    });
+  }
+
+  computeAbsoluteScores(rows);
+  return rows;
+}
+
 // ====== PROCESS INSIGHTS ROWS ======
 // Shared logic for processing Meta insights rows into clean ad data
 function processInsightRows(rows, { objectiveMap, statusMap, createdTimeMap, thumbnailMap, campaignBudgets, adsetBudgets, snapshotHours }) {
@@ -555,6 +783,8 @@ function processInsightRows(rows, { objectiveMap, statusMap, createdTimeMap, thu
       shares: 0,
       saves: 0,
       link_clicks: 0,
+      landing_page_views: 0,
+      lpvr: 0,
       ctr: 0,
       awareness_score: null,
       engagement_score: null,
@@ -691,6 +921,23 @@ app.get("/live", async (req, res) => {
     });
 
     await generateAdInsights(cleanRows);
+
+    // Fetch TikTok data in parallel (non-blocking if not configured)
+    try {
+      const tikTokToken = await getTikTokToken();
+      if (tikTokToken) {
+        const tikTokAds = await fetchTikTokAds(tikTokToken);
+        if (tikTokAds.length > 0) {
+          const tikTokAdIds = tikTokAds.map(a => a.ad_id);
+          const tikTokInsights = await fetchTikTokInsights(tikTokToken, tikTokAdIds);
+          const tikTokRows = processTikTokData(tikTokAds, tikTokInsights);
+          cleanRows.push(...tikTokRows);
+          console.log(`TikTok: added ${tikTokRows.length} ads`);
+        }
+      }
+    } catch (ttErr) {
+      console.warn("TikTok data fetch skipped:", ttErr.message);
+    }
 
     console.log(`Live endpoint: returning ${cleanRows.length} ads (not saved to DB)`);
     res.json({ data: cleanRows });
@@ -1154,7 +1401,8 @@ Rules:
         ],
         reachByPlatform: [
           { label: 'Instagram', value: cleanRows.filter(r=>r.publisher_platform==='instagram').reduce((s,d)=>s+d.reach,0) },
-          { label: 'Facebook', value: cleanRows.filter(r=>r.publisher_platform==='facebook').reduce((s,d)=>s+d.reach,0) }
+          { label: 'Facebook', value: cleanRows.filter(r=>r.publisher_platform==='facebook').reduce((s,d)=>s+d.reach,0) },
+          { label: 'TikTok', value: cleanRows.filter(r=>r.publisher_platform==='tiktok').reduce((s,d)=>s+d.reach,0) }
         ],
         topAdsScores: cleanRows
           .map(r => ({ name: r.ad_name.substring(0,30), score: r.awareness_score ?? r.engagement_score ?? r.traffic_score ?? 0, type: r.campaign_type, platform: r.publisher_platform }))

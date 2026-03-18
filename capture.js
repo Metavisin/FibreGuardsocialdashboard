@@ -120,6 +120,140 @@ function computeAbsoluteScores(rows) {
   }
 }
 
+// ====== TIKTOK API ======
+
+const TIKTOK_APP_ID = process.env.TIKTOK_APP_ID;
+const TIKTOK_APP_SECRET = process.env.TIKTOK_APP_SECRET;
+
+async function getTikTokToken() {
+  const { data, error } = await supabase
+    .from("tiktok_tokens")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error || !data) return null;
+
+  // Refresh if expiring within 1 hour
+  const expiresAt = new Date(data.token_expires_at);
+  if (expiresAt < new Date(Date.now() + 60 * 60 * 1000) && data.refresh_token && TIKTOK_APP_ID && TIKTOK_APP_SECRET) {
+    try {
+      const res = await axios.post("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
+        app_id: TIKTOK_APP_ID, secret: TIKTOK_APP_SECRET,
+        grant_type: "refresh_token", refresh_token: data.refresh_token
+      });
+      const newToken = res.data?.data;
+      if (newToken?.access_token) {
+        await supabase.from("tiktok_tokens").update({
+          access_token: newToken.access_token,
+          refresh_token: newToken.refresh_token || data.refresh_token,
+          token_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          updated_at: new Date().toISOString()
+        }).eq("advertiser_id", data.advertiser_id);
+        console.log("TikTok token refreshed");
+        return { ...data, access_token: newToken.access_token };
+      }
+    } catch (err) { console.warn("TikTok token refresh failed:", err.message); }
+  }
+  return data;
+}
+
+async function fetchTikTokActiveAds(token) {
+  if (!token) return [];
+  try {
+    const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
+      params: {
+        advertiser_id: token.advertiser_id, page_size: 200,
+        filtering: JSON.stringify({ status: "AD_STATUS_DELIVERY_OK" })
+      },
+      headers: { "Access-Token": token.access_token }
+    });
+    return res.data?.data?.list || [];
+  } catch (err) { console.warn("TikTok ad fetch failed:", err.message); return []; }
+}
+
+async function fetchTikTokInsights(token, adIds) {
+  if (!token || adIds.length === 0) return [];
+  try {
+    const endDate = new Date().toISOString().split("T")[0];
+    const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
+      params: {
+        advertiser_id: token.advertiser_id, report_type: "BASIC",
+        data_level: "AUCTION_AD", dimensions: JSON.stringify(["ad_id"]),
+        metrics: JSON.stringify(["spend","impressions","reach","cpm","cpc","ctr","clicks","video_play_actions","video_watched_6s","likes","comments","shares","follows","frequency","campaign_name","adgroup_name","ad_name"]),
+        start_date: startDate, end_date: endDate,
+        filtering: JSON.stringify({ ad_ids: adIds }), page_size: 200
+      },
+      headers: { "Access-Token": token.access_token }
+    });
+    return res.data?.data?.list || [];
+  } catch (err) { console.warn("TikTok insights failed:", err.message); return []; }
+}
+
+function processTikTokSnapshots(ads, insights) {
+  const adInfoMap = {};
+  for (const ad of ads) {
+    adInfoMap[ad.ad_id] = {
+      ad_name: ad.ad_name || ad.ad_text || "",
+      campaign_name: ad.campaign_name || "",
+      campaign_id: ad.campaign_id || null,
+      adgroup_name: ad.adgroup_name || "",
+      objective: ad.objective_type || ad.objective || "",
+      created_time: ad.create_time || null
+    };
+  }
+
+  const rows = [];
+  for (const item of insights) {
+    const m = item.metrics || {};
+    const d = item.dimensions || {};
+    const adId = d.ad_id;
+    const info = adInfoMap[adId] || {};
+    const campaignName = info.campaign_name || m.campaign_name || "";
+    const text = `${campaignName} ${info.objective || ""}`.toLowerCase();
+    const campaignType = text.includes("traffic") || text.includes("clicks") ? "traffic" :
+      text.includes("engagement") || text.includes("education") ? "engagement" : "awareness";
+
+    const impressions = safeNumber(m.impressions);
+    const video6s = safeNumber(m.video_watched_6s);
+    const clicks = safeNumber(m.clicks);
+    const spend = safeNumber(m.spend);
+    const adCreated = info.created_time || null;
+    const adAgeHours = adCreated ? Math.round(hoursAgo(adCreated)) : 0;
+
+    rows.push({
+      captured_at: new Date().toISOString(),
+      snapshot_hours: adAgeHours,
+      campaign_type: campaignType,
+      campaign_name: campaignName,
+      campaign_id: info.campaign_id || null,
+      adset_name: info.adgroup_name || m.adgroup_name || "",
+      ad_name: info.ad_name || m.ad_name || "",
+      ad_id: adId,
+      publisher_platform: "tiktok",
+      ad_status: "ACTIVE",
+      ad_created_time: adCreated,
+      date_start: null, date_stop: null,
+      impressions, reach: safeNumber(m.reach), cpm: safeNumber(m.cpm),
+      spend, frequency: safeNumber(m.frequency),
+      cost_per_click: safeNumber(m.cpc),
+      landing_page_views: 0, lpvr: 0,
+      video_3s_views: safeNumber(m.video_play_actions),
+      video_3s_view_rate: impressions > 0 ? round((video6s / impressions) * 100) : 0,
+      likes: safeNumber(m.likes), comments: safeNumber(m.comments),
+      shares: safeNumber(m.shares), saves: 0,
+      link_clicks: clicks,
+      ctr: safeNumber(m.ctr),
+      awareness_score: null, engagement_score: null, traffic_score: null,
+      boost_recommendation: null, thumbnail_url: null
+    });
+  }
+  computeAbsoluteScores(rows);
+  return rows;
+}
+
 // ====== META API ======
 
 async function fetchActiveAds() {
@@ -476,14 +610,49 @@ async function run() {
     }
   }
 
-  console.log(`\n✅ Captured ${cleanRows.length} snapshot rows for ${adsToCaptureIds.length} ads`);
+  console.log(`\n✅ Meta: Captured ${cleanRows.length} snapshot rows for ${adsToCaptureIds.length} ads`);
 
-  // 9. Summary
+  // 9. TikTok capture (if configured)
+  let tikTokCaptured = 0;
+  try {
+    const ttToken = await getTikTokToken();
+    if (ttToken) {
+      console.log("\n--- TikTok ---");
+      const ttAds = await fetchTikTokActiveAds(ttToken);
+      if (ttAds.length > 0) {
+        const ttAdIds = ttAds.map(a => a.ad_id);
+        // Register TikTok ads in tracking table
+        for (const ad of ttAds) {
+          await upsertTracking(ad.ad_id, ad.ad_name || ad.ad_text || "", ad.campaign_name || "");
+        }
+        const ttInsights = await fetchTikTokInsights(ttToken, ttAdIds);
+        const ttRows = processTikTokSnapshots(ttAds, ttInsights);
+        if (ttRows.length > 0) {
+          const { error: ttErr } = await supabase.from("ad_snapshots").insert(ttRows);
+          if (ttErr) console.warn("TikTok snapshot insert failed:", ttErr.message);
+          else {
+            tikTokCaptured = ttRows.length;
+            for (const adId of [...new Set(ttRows.map(r => r.ad_id))]) {
+              await incrementSnapshotCount(adId);
+            }
+          }
+        }
+        console.log(`✅ TikTok: Captured ${tikTokCaptured} snapshot rows for ${ttAds.length} ads`);
+      } else {
+        console.log("No active TikTok ads found.");
+      }
+    }
+  } catch (ttErr) {
+    console.warn("TikTok capture skipped:", ttErr.message);
+  }
+
+  // 10. Summary
   console.log("\n--- Summary ---");
-  console.log(`Active ads: ${activeAds.length}`);
-  console.log(`Snapshots captured: ${cleanRows.length}`);
-  console.log(`Ads skipped (up-to-date): ${refreshedTracking.length - adsToCaptureIds.length}`);
-  console.log(`Ads marked inactive: ${nowInactiveIds.length}`);
+  console.log(`Meta active ads: ${activeAds.length}`);
+  console.log(`Meta snapshots captured: ${cleanRows.length}`);
+  console.log(`Meta ads skipped: ${refreshedTracking.length - adsToCaptureIds.length}`);
+  console.log(`Meta ads marked inactive: ${nowInactiveIds.length}`);
+  if (tikTokCaptured > 0) console.log(`TikTok snapshots captured: ${tikTokCaptured}`);
 }
 
 // Run
