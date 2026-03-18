@@ -652,42 +652,51 @@ async function fetchTikTokAds(token) {
 }
 
 async function fetchTikTokInsights(token, adIds) {
-  if (!token || adIds.length === 0) return [];
+  if (!token) return [];
   try {
     const endDate = new Date().toISOString().split("T")[0];
     const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-    // Only use valid TikTok reporting metrics — NOT dimensions like campaign_name
+    // Fetch ALL ad-level data for the advertiser (no ad_id filter — avoids URL length issues)
+    const params = {
+      advertiser_id: token.advertiser_id,
+      report_type: "BASIC",
+      data_level: "AUCTION_AD",
+      dimensions: JSON.stringify(["ad_id"]),
+      metrics: JSON.stringify([
+        "spend", "impressions", "reach", "cpm", "cpc", "ctr",
+        "clicks", "video_play_actions", "video_watched_2s",
+        "likes", "comments", "shares", "frequency",
+        "landing_page_view"
+      ]),
+      start_date: startDate,
+      end_date: endDate,
+      page_size: 200
+    };
+    console.log(`TikTok insights request: ${startDate} to ${endDate}, advertiser=${token.advertiser_id}`);
+
     const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
-      params: {
-        advertiser_id: token.advertiser_id,
-        service_type: "AUCTION",
-        report_type: "BASIC",
-        data_level: "AUCTION_AD",
-        dimensions: JSON.stringify(["ad_id"]),
-        metrics: JSON.stringify([
-          "spend", "impressions", "reach", "cpm", "cpc", "ctr",
-          "clicks", "video_play_actions", "video_watched_2s",
-          "likes", "comments", "shares", "frequency",
-          "landing_page_view", "result", "cost_per_result"
-        ]),
-        start_date: startDate,
-        end_date: endDate,
-        filtering: JSON.stringify([
-          { field_name: "ad_id", filter_type: "IN", filter_value: adIds.map(String) }
-        ]),
-        page_size: 200
-      },
+      params,
       headers: { "Access-Token": token.access_token }
     });
     const list = res.data?.data?.list || [];
-    console.log(`TikTok insights: got ${list.length} rows, response code: ${res.data?.code}`);
+    console.log(`TikTok insights: got ${list.length} rows, code: ${res.data?.code}, message: ${res.data?.message}`);
     if (res.data?.code !== 0) {
       console.warn("TikTok insights API error:", JSON.stringify(res.data));
+      // Try with service_type if it failed without
+      console.log("Retrying with service_type=AUCTION...");
+      const res2 = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
+        params: { ...params, service_type: "AUCTION" },
+        headers: { "Access-Token": token.access_token }
+      });
+      const list2 = res2.data?.data?.list || [];
+      console.log(`TikTok insights retry: got ${list2.length} rows, code: ${res2.data?.code}, message: ${res2.data?.message}`);
+      if (res2.data?.code !== 0) console.warn("TikTok insights retry error:", JSON.stringify(res2.data));
+      return list2;
     }
     return list;
   } catch (err) {
-    console.warn("TikTok insights fetch failed:", err.response?.data || err.message);
+    console.warn("TikTok insights fetch failed:", JSON.stringify(err.response?.data || err.message));
     return [];
   }
 }
@@ -1023,7 +1032,35 @@ app.get("/tiktok-debug", async (req, res) => {
       return res.json({ ok: true, log, ads: [], insights: [], processed: [] });
     }
 
-    log.push("\nStep 4: Fetching insights...");
+    log.push("\nStep 4: Fetching insights (raw API test)...");
+    // Raw API test first — minimal call to see what TikTok returns
+    try {
+      const endDate = new Date().toISOString().split("T")[0];
+      const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const rawRes = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
+        params: {
+          advertiser_id: token.advertiser_id,
+          report_type: "BASIC",
+          data_level: "AUCTION_AD",
+          dimensions: JSON.stringify(["ad_id"]),
+          metrics: JSON.stringify(["spend", "impressions", "clicks"]),
+          start_date: startDate,
+          end_date: endDate,
+          page_size: 10
+        },
+        headers: { "Access-Token": token.access_token }
+      });
+      log.push(`Raw API response — code: ${rawRes.data?.code}, message: "${rawRes.data?.message}", rows: ${rawRes.data?.data?.list?.length || 0}, page_info: ${JSON.stringify(rawRes.data?.data?.page_info || {})}`);
+      if (rawRes.data?.code !== 0) log.push(`Full error: ${JSON.stringify(rawRes.data)}`);
+      const rawList = rawRes.data?.data?.list || [];
+      for (const item of rawList.slice(0, 5)) {
+        log.push(`  Raw: ad_id=${item.dimensions?.ad_id}, spend=${item.metrics?.spend}, impressions=${item.metrics?.impressions}`);
+      }
+    } catch (rawErr) {
+      log.push(`Raw API error: ${JSON.stringify(rawErr.response?.data || rawErr.message)}`);
+    }
+
+    log.push("\nStep 4b: Full insights fetch...");
     const adIds = ads.map(a => a.ad_id);
     const insights = await fetchTikTokInsights(token, adIds);
     log.push(`Insight rows: ${insights.length}`);
