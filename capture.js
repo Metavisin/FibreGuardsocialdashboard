@@ -287,21 +287,34 @@ async function fetchTikTokThumbnails(token, ads) {
       if (ad.avatar_icon_web_uri && !thumbnails[adId]) thumbnails[adId] = ad.avatar_icon_web_uri;
     }
 
-    // Spark Ads: fetch cover via tt_video/info
-    const identityId = ads.find(a => a.identity_id)?.identity_id;
-    if (identityId && tiktokItemIds.length > 0) {
-      for (const itemId of [...new Set(tiktokItemIds)]) {
-        try {
-          const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/tt_video/info/", {
-            params: { advertiser_id: token.advertiser_id, item_id: itemId },
-            headers: { "Access-Token": token.access_token }
-          });
-          const info = res.data?.data;
-          const coverUrl = info?.cover_image_url || info?.poster_url || info?.item_cover_url || null;
-          if (coverUrl && itemAdMap[itemId]) {
-            for (const adId of itemAdMap[itemId]) thumbnails[adId] = coverUrl;
+    // Spark Ads: use TikTok oEmbed API (public, no auth needed)
+    const uniqueItemIds = [...new Set(tiktokItemIds)];
+    if (uniqueItemIds.length > 0) {
+      const OEMBED_CONCURRENCY = 5;
+      for (let i = 0; i < uniqueItemIds.length; i += OEMBED_CONCURRENCY) {
+        const batch = uniqueItemIds.slice(i, i + OEMBED_CONCURRENCY);
+        const results = await Promise.allSettled(
+          batch.map(async (itemId) => {
+            try {
+              const videoUrl = `https://www.tiktok.com/@/video/${itemId}`;
+              const res = await axios.get("https://www.tiktok.com/oembed", {
+                params: { url: videoUrl },
+                timeout: 5000
+              });
+              return { itemId, thumbnailUrl: res.data?.thumbnail_url || null };
+            } catch (e) {
+              return { itemId, thumbnailUrl: null };
+            }
+          })
+        );
+        for (const result of results) {
+          if (result.status === "fulfilled" && result.value.thumbnailUrl) {
+            const { itemId, thumbnailUrl } = result.value;
+            if (itemAdMap[itemId]) {
+              for (const adId of itemAdMap[itemId]) thumbnails[adId] = thumbnailUrl;
+            }
           }
-        } catch (e) { /* continue */ }
+        }
       }
     }
 

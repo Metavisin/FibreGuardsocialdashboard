@@ -698,38 +698,39 @@ async function fetchTikTokThumbnails(token, ads) {
 
     console.log(`TikTok thumbnails: ${videoIds.length} video_ids, ${tiktokItemIds.length} tiktok_item_ids, ${Object.keys(imageAdMap).length} image_ids, ${Object.keys(thumbnails).length} direct URLs`);
 
-    // For Spark Ads: fetch video info using identity_id + tiktok_item_id
-    // These are boosted organic posts where the creative lives on TikTok
+    // For Spark Ads: use TikTok oEmbed API (public, no auth needed)
+    // These are boosted organic posts — tiktok_item_id is the organic video ID
     const uniqueItemIds = [...new Set(tiktokItemIds)];
     if (uniqueItemIds.length > 0) {
-      // Get identity_id from the first ad that has one (usually same for all)
-      const identityId = ads.find(a => a.identity_id)?.identity_id;
-      if (identityId) {
-        for (let i = 0; i < uniqueItemIds.length; i += 20) {
-          const batch = uniqueItemIds.slice(i, i + 20);
-          for (const itemId of batch) {
+      const OEMBED_CONCURRENCY = 5;
+      for (let i = 0; i < uniqueItemIds.length; i += OEMBED_CONCURRENCY) {
+        const batch = uniqueItemIds.slice(i, i + OEMBED_CONCURRENCY);
+        const results = await Promise.allSettled(
+          batch.map(async (itemId) => {
             try {
-              const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/tt_video/info/", {
-                params: {
-                  advertiser_id: token.advertiser_id,
-                  item_id: itemId
-                },
-                headers: { "Access-Token": token.access_token }
+              const videoUrl = `https://www.tiktok.com/@/video/${itemId}`;
+              const res = await axios.get("https://www.tiktok.com/oembed", {
+                params: { url: videoUrl },
+                timeout: 5000
               });
-              const videoInfo = res.data?.data;
-              const coverUrl = videoInfo?.cover_image_url || videoInfo?.poster_url || videoInfo?.item_cover_url || null;
-              if (coverUrl && itemAdMap[itemId]) {
-                for (const adId of itemAdMap[itemId]) {
-                  thumbnails[adId] = coverUrl;
-                }
-              }
+              return { itemId, thumbnailUrl: res.data?.thumbnail_url || null };
             } catch (e) {
-              // tt_video/info may not work for all items, continue silently
+              return { itemId, thumbnailUrl: null };
+            }
+          })
+        );
+        for (const result of results) {
+          if (result.status === "fulfilled" && result.value.thumbnailUrl) {
+            const { itemId, thumbnailUrl } = result.value;
+            if (itemAdMap[itemId]) {
+              for (const adId of itemAdMap[itemId]) {
+                thumbnails[adId] = thumbnailUrl;
+              }
             }
           }
         }
-        console.log(`TikTok: after Spark Ad lookup, ${Object.keys(thumbnails).length} thumbnails`);
       }
+      console.log(`TikTok: after oEmbed Spark Ad lookup, ${Object.keys(thumbnails).length} thumbnails`);
     }
 
     // Fetch standard video thumbnails (poster_url) in batches of 60
@@ -1259,7 +1260,34 @@ app.get("/tiktok-debug", async (req, res) => {
       log.push(`  Ad ${d.ad_id}: spend=${m.spend}, impressions=${m.impressions}, reach=${m.reach}, clicks=${m.clicks}, ctr=${m.ctr}, cpc=${m.cpc}, lpv=${m.landing_page_view}`);
     }
 
-    log.push("\nStep 4c: Fetching thumbnails...");
+    log.push("\nStep 4c: Testing oEmbed for first Spark Ad...");
+    const firstSparkAd = ads.find(a => a.tiktok_item_id);
+    if (firstSparkAd) {
+      const testItemId = firstSparkAd.tiktok_item_id;
+      log.push(`  Testing tiktok_item_id: ${testItemId}`);
+      for (const urlFormat of [
+        `https://www.tiktok.com/@/video/${testItemId}`,
+        `https://www.tiktok.com/video/${testItemId}`,
+        `https://m.tiktok.com/v/${testItemId}.html`
+      ]) {
+        try {
+          const oembedRes = await axios.get("https://www.tiktok.com/oembed", {
+            params: { url: urlFormat },
+            timeout: 5000
+          });
+          log.push(`  oEmbed URL "${urlFormat}" → status=${oembedRes.status}, thumbnail=${oembedRes.data?.thumbnail_url ? 'YES' : 'NO'}, title="${(oembedRes.data?.title || '').substring(0,50)}"`);
+          if (oembedRes.data?.thumbnail_url) {
+            log.push(`    thumbnail_url: ${oembedRes.data.thumbnail_url.substring(0, 120)}`);
+          }
+        } catch (oErr) {
+          log.push(`  oEmbed URL "${urlFormat}" → FAILED: ${oErr.response?.status || oErr.message}`);
+        }
+      }
+    } else {
+      log.push("  No Spark Ads found to test");
+    }
+
+    log.push("\nStep 4d: Fetching all thumbnails...");
     const thumbs = await fetchTikTokThumbnails(token, ads);
     log.push(`Thumbnails found: ${Object.keys(thumbs).length}`);
     for (const [adId, url] of Object.entries(thumbs).slice(0, 5)) {
