@@ -610,12 +610,10 @@ async function fetchTikTokAds(token) {
   if (!token) return [];
   try {
     // Use primary_status NOT_DELETE to get ALL ads (active + ended + disabled, just not deleted)
-    // Request creative fields (video_id, image_ids) for thumbnail fetching
     const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
       params: {
         advertiser_id: token.advertiser_id,
         page_size: 200,
-        fields: JSON.stringify(["ad_id", "ad_name", "ad_text", "campaign_id", "campaign_name", "adgroup_id", "adgroup_name", "status", "operation_status", "primary_status", "secondary_status", "create_time", "objective_type", "video_id", "image_ids", "avatar_icon_web_uri", "profile_image_url"]),
         filtering: JSON.stringify({ primary_status: "STATUS_NOT_DELETE" })
       },
       headers: { "Access-Token": token.access_token }
@@ -635,11 +633,7 @@ async function fetchTikTokAds(token) {
     try {
       console.log("TikTok: retrying ad fetch without status filter...");
       const res2 = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
-        params: {
-          advertiser_id: token.advertiser_id,
-          page_size: 200,
-          fields: JSON.stringify(["ad_id", "ad_name", "ad_text", "campaign_id", "campaign_name", "adgroup_id", "adgroup_name", "status", "operation_status", "primary_status", "secondary_status", "create_time", "objective_type", "video_id", "image_ids", "avatar_icon_web_uri", "profile_image_url"])
-        },
+        params: { advertiser_id: token.advertiser_id, page_size: 200 },
         headers: { "Access-Token": token.access_token }
       });
       const ads = res2.data?.data?.list || [];
@@ -662,6 +656,22 @@ async function fetchTikTokThumbnails(token, ads) {
   if (!token || ads.length === 0) return thumbnails;
 
   try {
+    // Log what keys are available on ads to help debug
+    if (ads.length > 0) {
+      const sampleKeys = Object.keys(ads[0]);
+      console.log(`TikTok ad sample keys: ${sampleKeys.join(', ')}`);
+      // Look for any key that might contain video/image/creative info
+      const creativeKeys = sampleKeys.filter(k =>
+        k.includes('video') || k.includes('image') || k.includes('creative') ||
+        k.includes('avatar') || k.includes('profile') || k.includes('thumbnail') ||
+        k.includes('cover') || k.includes('poster') || k.includes('icon')
+      );
+      console.log(`TikTok creative-related keys: ${creativeKeys.join(', ') || 'none found'}`);
+      if (creativeKeys.length > 0) {
+        console.log(`TikTok sample creative values: ${creativeKeys.map(k => `${k}=${JSON.stringify(ads[0][k])?.substring(0, 80)}`).join(', ')}`);
+      }
+    }
+
     // Collect video_ids and image_ids from ads
     const videoIds = [];
     const imageAdMap = {}; // image_id -> [ad_ids]
@@ -669,23 +679,33 @@ async function fetchTikTokThumbnails(token, ads) {
 
     for (const ad of ads) {
       const adId = String(ad.ad_id);
-      // TikTok ad objects may have video_id or image_ids in their creative
-      if (ad.video_id) {
-        videoIds.push(ad.video_id);
-        if (!videoAdMap[ad.video_id]) videoAdMap[ad.video_id] = [];
-        videoAdMap[ad.video_id].push(adId);
+
+      // Check all possible video ID field names
+      const videoId = ad.video_id || ad.tiktok_item_id || ad.creative?.video_id || null;
+      if (videoId) {
+        videoIds.push(videoId);
+        if (!videoAdMap[videoId]) videoAdMap[videoId] = [];
+        videoAdMap[videoId].push(adId);
       }
-      if (ad.image_ids && ad.image_ids.length > 0) {
-        for (const imgId of ad.image_ids) {
+
+      // Check all possible image ID field names
+      const imageIds = ad.image_ids || ad.creative?.image_ids || [];
+      if (Array.isArray(imageIds) && imageIds.length > 0) {
+        for (const imgId of imageIds) {
           if (!imageAdMap[imgId]) imageAdMap[imgId] = [];
           imageAdMap[imgId].push(adId);
         }
       }
-      // Some ads have avatar_icon_web_uri or profile_image_url
-      if (ad.avatar_icon_web_uri && !thumbnails[adId]) {
-        thumbnails[adId] = ad.avatar_icon_web_uri;
+
+      // Direct URL fields that some ads might have
+      const directUrl = ad.avatar_icon_web_uri || ad.profile_image_url ||
+                        ad.image_url || ad.video_cover_url || ad.thumbnail_url || null;
+      if (directUrl && !thumbnails[adId]) {
+        thumbnails[adId] = directUrl;
       }
     }
+
+    console.log(`TikTok thumbnails: ${videoIds.length} video_ids, ${Object.keys(imageAdMap).length} image_ids, ${Object.keys(thumbnails).length} direct URLs`);
 
     // Fetch video thumbnails (poster_url) in batches of 60
     const uniqueVideoIds = [...new Set(videoIds)];
@@ -700,6 +720,7 @@ async function fetchTikTokThumbnails(token, ads) {
           headers: { "Access-Token": token.access_token }
         });
         const videos = res.data?.data?.list || [];
+        console.log(`TikTok video info: ${videos.length} results for ${batch.length} IDs`);
         for (const v of videos) {
           const posterUrl = v.poster_url || v.video_cover_url || null;
           if (posterUrl && videoAdMap[v.video_id]) {
@@ -709,7 +730,7 @@ async function fetchTikTokThumbnails(token, ads) {
           }
         }
       } catch (e) {
-        console.warn(`TikTok video info batch failed: ${e.message}`);
+        console.warn(`TikTok video info batch failed: ${e.response?.data?.message || e.message}`);
       }
     }
 
@@ -730,16 +751,16 @@ async function fetchTikTokThumbnails(token, ads) {
           const imgUrl = img.image_url || img.url || null;
           if (imgUrl && imageAdMap[img.image_id]) {
             for (const adId of imageAdMap[img.image_id]) {
-              if (!thumbnails[adId]) thumbnails[adId] = imgUrl; // video poster takes priority
+              if (!thumbnails[adId]) thumbnails[adId] = imgUrl;
             }
           }
         }
       } catch (e) {
-        console.warn(`TikTok image info batch failed: ${e.message}`);
+        console.warn(`TikTok image info batch failed: ${e.response?.data?.message || e.message}`);
       }
     }
 
-    console.log(`TikTok: fetched ${Object.keys(thumbnails).length} thumbnails from ${uniqueVideoIds.length} videos + ${uniqueImageIds.length} images`);
+    console.log(`TikTok: fetched ${Object.keys(thumbnails).length} total thumbnails from ${uniqueVideoIds.length} videos + ${uniqueImageIds.length} images`);
   } catch (err) {
     console.warn("TikTok thumbnail fetch failed (non-blocking):", err.message);
   }

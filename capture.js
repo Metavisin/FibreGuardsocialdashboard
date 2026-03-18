@@ -187,11 +187,9 @@ async function fetchTikTokCampaigns(token) {
 async function fetchTikTokActiveAds(token) {
   if (!token) return [];
   try {
-    const ttFields = JSON.stringify(["ad_id", "ad_name", "ad_text", "campaign_id", "campaign_name", "adgroup_id", "adgroup_name", "status", "operation_status", "primary_status", "secondary_status", "create_time", "objective_type", "video_id", "image_ids", "avatar_icon_web_uri", "profile_image_url"]);
     const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
       params: {
         advertiser_id: token.advertiser_id, page_size: 200,
-        fields: ttFields,
         filtering: JSON.stringify({ primary_status: "STATUS_NOT_DELETE" })
       },
       headers: { "Access-Token": token.access_token }
