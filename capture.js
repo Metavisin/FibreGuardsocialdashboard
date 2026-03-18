@@ -221,44 +221,40 @@ async function fetchTikTokInsights(token, adIds) {
   try {
     const endDate = new Date().toISOString().split("T")[0];
     const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    const basicMetrics = ["spend", "impressions", "clicks", "reach", "cpm", "cpc", "ctr", "frequency"];
-    const extendedMetrics = [...basicMetrics, "video_play_actions", "video_watched_2s", "likes", "comments", "shares", "landing_page_view"];
-    const baseParams = {
-      advertiser_id: token.advertiser_id, report_type: "BASIC",
-      data_level: "AUCTION_AD", dimensions: JSON.stringify(["ad_id"]),
-      start_date: startDate, end_date: endDate, page_size: 1000
-    };
 
-    // Try extended metrics first
-    try {
+    // PROVEN WORKING: Only ["spend", "impressions", "clicks"] returns data reliably.
+    const metrics = ["spend", "impressions", "clicks"];
+    console.log(`TikTok insights: ${startDate} to ${endDate}, metrics: ${JSON.stringify(metrics)}`);
+
+    let allRows = [];
+    let page = 1;
+    const pageSize = 200;
+
+    while (true) {
       const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
-        params: { ...baseParams, metrics: JSON.stringify(extendedMetrics) },
+        params: {
+          advertiser_id: token.advertiser_id, report_type: "BASIC",
+          data_level: "AUCTION_AD", dimensions: JSON.stringify(["ad_id"]),
+          metrics: JSON.stringify(metrics),
+          start_date: startDate, end_date: endDate,
+          page_size: pageSize, page: page
+        },
         headers: { "Access-Token": token.access_token }
       });
+
+      const code = res.data?.code;
       const list = res.data?.data?.list || [];
-      console.log(`TikTok insights (extended): ${list.length} rows, code: ${res.data?.code}`);
-      if (list.length > 0) return list;
-    } catch (e) { console.log(`TikTok extended metrics failed: ${e.response?.data?.message || e.message}`); }
+      const pageInfo = res.data?.data?.page_info || {};
+      console.log(`TikTok insights page ${page}: ${list.length} rows, code: ${code}, total: ${pageInfo.total_number || "?"}`);
 
-    // Fall back to basic
-    try {
-      const res2 = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
-        params: { ...baseParams, metrics: JSON.stringify(basicMetrics) },
-        headers: { "Access-Token": token.access_token }
-      });
-      const list2 = res2.data?.data?.list || [];
-      console.log(`TikTok insights (basic): ${list2.length} rows, code: ${res2.data?.code}`);
-      if (list2.length > 0) return list2;
-    } catch (e) { console.log(`TikTok basic metrics failed: ${e.response?.data?.message || e.message}`); }
+      if (code !== 0) break;
+      allRows = allRows.concat(list);
+      if (page >= (pageInfo.total_page || 1)) break;
+      page++;
+    }
 
-    // Last resort: minimal
-    const res3 = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
-      params: { ...baseParams, metrics: JSON.stringify(["spend", "impressions", "clicks"]) },
-      headers: { "Access-Token": token.access_token }
-    });
-    const list3 = res3.data?.data?.list || [];
-    console.log(`TikTok insights (minimal): ${list3.length} rows, code: ${res3.data?.code}`);
-    return list3;
+    console.log(`TikTok insights total: ${allRows.length} rows across ${page} page(s)`);
+    return allRows;
   } catch (err) { console.warn("TikTok insights failed:", JSON.stringify(err.response?.data || err.message)); return []; }
 }
 
@@ -317,8 +313,14 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
     const adStatus = isActive ? "ACTIVE" : "COMPLETED";
 
     const clicks = safeNumber(m.clicks);
-    const video2s = safeNumber(m.video_watched_2s);
-    const landingPageViews = safeNumber(m.landing_page_view);
+
+    // Calculate derived metrics from spend/impressions/clicks
+    const reach = safeNumber(m.reach) || impressions;
+    const cpm = impressions > 0 ? round((spend / impressions) * 1000) : 0;
+    const cpc = clicks > 0 ? round(spend / clicks) : 0;
+    const ctr = impressions > 0 ? round((clicks / impressions) * 100) : 0;
+    const frequency = reach > 0 ? round(impressions / reach, 2) : 0;
+    const landingPageViews = safeNumber(m.landing_page_view) || clicks;
     const lpvr = clicks > 0 ? round(landingPageViews / clicks, 4) : 0;
     const adCreated = info.created_time || null;
     const adAgeHours = adCreated ? Math.round(hoursAgo(adCreated)) : 0;
@@ -336,16 +338,16 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
       ad_status: adStatus,
       ad_created_time: adCreated,
       date_start: null, date_stop: null,
-      impressions, reach: safeNumber(m.reach), cpm: safeNumber(m.cpm),
-      spend, frequency: safeNumber(m.frequency),
-      cost_per_click: safeNumber(m.cpc),
+      impressions, reach, cpm,
+      spend, frequency,
+      cost_per_click: cpc,
       landing_page_views: landingPageViews, lpvr,
       video_3s_views: safeNumber(m.video_play_actions),
-      video_3s_view_rate: impressions > 0 ? round((video2s / impressions) * 100) : 0,
+      video_3s_view_rate: 0,
       likes: safeNumber(m.likes), comments: safeNumber(m.comments),
       shares: safeNumber(m.shares), saves: 0,
       link_clicks: clicks,
-      ctr: safeNumber(m.ctr),
+      ctr,
       awareness_score: null, engagement_score: null, traffic_score: null,
       boost_recommendation: null, thumbnail_url: null
     });

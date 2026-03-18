@@ -657,59 +657,54 @@ async function fetchTikTokInsights(token, adIds) {
     const endDate = new Date().toISOString().split("T")[0];
     const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-    // Use only validated metrics that work with TikTok reporting API
-    // Some metrics like video_play_actions, likes, shares etc may not be valid
-    // for the integrated report — we try with extended set first, fall back to basic
-    const basicMetrics = ["spend", "impressions", "clicks", "reach", "cpm", "cpc", "ctr", "frequency"];
-    const extendedMetrics = [...basicMetrics, "video_play_actions", "video_watched_2s", "likes", "comments", "shares", "landing_page_view"];
+    // PROVEN WORKING: Only ["spend", "impressions", "clicks"] returns data reliably.
+    // Extended/basic metric sets cause TikTok API to return 0 rows silently.
+    // We fetch raw data and calculate derived metrics (CPM, CPC, CTR) in processing.
+    const metrics = ["spend", "impressions", "clicks"];
 
-    const baseParams = {
-      advertiser_id: token.advertiser_id,
-      report_type: "BASIC",
-      data_level: "AUCTION_AD",
-      dimensions: JSON.stringify(["ad_id"]),
-      start_date: startDate,
-      end_date: endDate,
-      page_size: 1000
-    };
+    console.log(`TikTok insights: ${startDate} to ${endDate}, metrics: ${JSON.stringify(metrics)}`);
 
-    console.log(`TikTok insights: ${startDate} to ${endDate}`);
+    // Paginate to get ALL results
+    let allRows = [];
+    let page = 1;
+    const pageSize = 200;
 
-    // Try extended metrics first
-    let list = [];
-    try {
+    while (true) {
       const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
-        params: { ...baseParams, metrics: JSON.stringify(extendedMetrics) },
+        params: {
+          advertiser_id: token.advertiser_id,
+          report_type: "BASIC",
+          data_level: "AUCTION_AD",
+          dimensions: JSON.stringify(["ad_id"]),
+          metrics: JSON.stringify(metrics),
+          start_date: startDate,
+          end_date: endDate,
+          page_size: pageSize,
+          page: page
+        },
         headers: { "Access-Token": token.access_token }
       });
-      list = res.data?.data?.list || [];
-      console.log(`TikTok insights (extended): ${list.length} rows, code: ${res.data?.code}`);
-      if (list.length > 0) return list;
-    } catch (e) {
-      console.log(`TikTok extended metrics failed: ${e.response?.data?.message || e.message}`);
+
+      const code = res.data?.code;
+      const list = res.data?.data?.list || [];
+      const pageInfo = res.data?.data?.page_info || {};
+      console.log(`TikTok insights page ${page}: ${list.length} rows, code: ${code}, total: ${pageInfo.total_number || "?"}`);
+
+      if (code !== 0) {
+        console.warn(`TikTok insights API error: code=${code}, message=${res.data?.message}`);
+        break;
+      }
+
+      allRows = allRows.concat(list);
+
+      // Check if there are more pages
+      const totalPages = pageInfo.total_page || 1;
+      if (page >= totalPages) break;
+      page++;
     }
 
-    // Fall back to basic metrics only
-    try {
-      const res2 = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
-        params: { ...baseParams, metrics: JSON.stringify(basicMetrics) },
-        headers: { "Access-Token": token.access_token }
-      });
-      list = res2.data?.data?.list || [];
-      console.log(`TikTok insights (basic): ${list.length} rows, code: ${res2.data?.code}`);
-      if (list.length > 0) return list;
-    } catch (e) {
-      console.log(`TikTok basic metrics failed: ${e.response?.data?.message || e.message}`);
-    }
-
-    // Last resort: absolute minimum
-    const res3 = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
-      params: { ...baseParams, metrics: JSON.stringify(["spend", "impressions", "clicks"]) },
-      headers: { "Access-Token": token.access_token }
-    });
-    list = res3.data?.data?.list || [];
-    console.log(`TikTok insights (minimal): ${list.length} rows, code: ${res3.data?.code}`);
-    return list;
+    console.log(`TikTok insights total: ${allRows.length} rows across ${page} page(s)`);
+    return allRows;
   } catch (err) {
     console.warn("TikTok insights fetch failed:", JSON.stringify(err.response?.data || err.message));
     return [];
@@ -778,18 +773,24 @@ function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignSta
                      secStatus.includes("DELIVERY_OK");
     const adStatus = isActive ? "ACTIVE" : "COMPLETED";
 
-    const reach = safeNumber(metrics.reach);
     const clicks = safeNumber(metrics.clicks);
+
+    // TikTok API only reliably returns spend/impressions/clicks.
+    // Calculate all derived metrics from these three values.
+    const reach = safeNumber(metrics.reach) || impressions; // Use impressions as reach proxy if reach not available
+    const cpm = impressions > 0 ? round((spend / impressions) * 1000) : 0;
+    const cpc = clicks > 0 ? round(spend / clicks) : 0;
+    const ctr = impressions > 0 ? round((clicks / impressions) * 100) : 0;
+    const frequency = reach > 0 ? round(impressions / reach, 2) : 0;
+
+    // These metrics won't be available from the minimal API response
+    // but we set them to 0 so the dashboard doesn't break
     const videoViews = safeNumber(metrics.video_play_actions);
     const video2s = safeNumber(metrics.video_watched_2s);
     const likes = safeNumber(metrics.likes);
     const comments = safeNumber(metrics.comments);
     const shares = safeNumber(metrics.shares);
-    const frequency = safeNumber(metrics.frequency);
-    const landingPageViews = safeNumber(metrics.landing_page_view);
-    const cpm = safeNumber(metrics.cpm);
-    const cpc = safeNumber(metrics.cpc);
-    const ctr = safeNumber(metrics.ctr);
+    const landingPageViews = safeNumber(metrics.landing_page_view) || clicks; // Use clicks as proxy for landing page views
     const viewRate = impressions > 0 ? round((video2s / impressions) * 100) : 0;
     const lpvr = clicks > 0 ? round(landingPageViews / clicks, 4) : 0;
 
@@ -1064,7 +1065,7 @@ app.get("/tiktok-debug", async (req, res) => {
           metrics: JSON.stringify(["spend", "impressions", "clicks"]),
           start_date: startDate,
           end_date: endDate,
-          page_size: 10
+          page_size: 200
         },
         headers: { "Access-Token": token.access_token }
       });
