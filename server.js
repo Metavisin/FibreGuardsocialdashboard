@@ -608,35 +608,46 @@ async function fetchTikTokCampaigns(token) {
 
 async function fetchTikTokAds(token) {
   if (!token) return [];
-  const allAds = [];
   try {
-    // Fetch ads across all primary statuses to get active + ended + disabled (but not deleted)
-    for (const primaryStatus of ["STATUS_DELIVERY_OK", "STATUS_DISABLE", "STATUS_DONE", "STATUS_NOT_DELIVER"]) {
-      try {
-        const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
-          params: {
-            advertiser_id: token.advertiser_id,
-            page_size: 200,
-            filtering: JSON.stringify({ primary_status: primaryStatus })
-          },
-          headers: { "Access-Token": token.access_token }
-        });
-        const ads = res.data?.data?.list || [];
-        for (const ad of ads) {
-          ad._primary_status = primaryStatus;
-        }
-        allAds.push(...ads);
-        if (ads.length > 0) console.log(`TikTok ads (${primaryStatus}): ${ads.length}`);
-      } catch (e) {
-        // Some statuses might not be supported, skip
-        console.log(`TikTok ad fetch for ${primaryStatus}: ${e.response?.data?.message || e.message}`);
-      }
+    // Use primary_status NOT_DELETE to get ALL ads (active + ended + disabled, just not deleted)
+    const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
+      params: {
+        advertiser_id: token.advertiser_id,
+        page_size: 200,
+        filtering: JSON.stringify({ primary_status: "STATUS_NOT_DELETE" })
+      },
+      headers: { "Access-Token": token.access_token }
+    });
+    const ads = res.data?.data?.list || [];
+    console.log(`TikTok: found ${ads.length} non-deleted ads`);
+    console.log(`TikTok API response code: ${res.data?.code}, message: ${res.data?.message}`);
+
+    // Log each ad's status for debugging
+    for (const ad of ads) {
+      ad._primary_status = ad.primary_status || ad.status || "";
+      console.log(`  Ad ${ad.ad_id}: name="${(ad.ad_name||'').substring(0,40)}", primary_status=${ad.primary_status}, secondary_status=${ad.secondary_status}, operation_status=${ad.operation_status}, campaign_id=${ad.campaign_id}`);
     }
-    console.log(`TikTok: found ${allAds.length} total ads across all statuses`);
-    return allAds;
+    return ads;
   } catch (err) {
-    console.warn("TikTok ad fetch failed:", err.response?.data || err.message);
-    return allAds;
+    console.warn("TikTok ad fetch failed:", JSON.stringify(err.response?.data || err.message));
+    // Fallback: try without any filtering
+    try {
+      console.log("TikTok: retrying ad fetch without status filter...");
+      const res2 = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
+        params: { advertiser_id: token.advertiser_id, page_size: 200 },
+        headers: { "Access-Token": token.access_token }
+      });
+      const ads = res2.data?.data?.list || [];
+      console.log(`TikTok fallback: found ${ads.length} ads, code: ${res2.data?.code}`);
+      for (const ad of ads) {
+        ad._primary_status = ad.primary_status || ad.status || "";
+        console.log(`  Ad ${ad.ad_id}: name="${(ad.ad_name||'').substring(0,40)}", primary_status=${ad.primary_status}, campaign_id=${ad.campaign_id}`);
+      }
+      return ads;
+    } catch (err2) {
+      console.warn("TikTok ad fetch fallback also failed:", JSON.stringify(err2.response?.data || err2.message));
+      return [];
+    }
   }
 }
 
@@ -978,6 +989,62 @@ app.get("/capture", async (req, res) => {
       error: "Capture failed",
       details: error.response?.data || error.message
     });
+  }
+});
+
+// ====== TIKTOK DEBUG ENDPOINT ======
+app.get("/tiktok-debug", async (req, res) => {
+  const log = [];
+  try {
+    log.push("Step 1: Getting TikTok token from Supabase...");
+    const token = await getTikTokToken();
+    if (!token) {
+      log.push("ERROR: No TikTok token found in Supabase. Have you authorized TikTok?");
+      return res.json({ ok: false, log });
+    }
+    log.push(`Token found for advertiser_id: ${token.advertiser_id}, expires: ${token.token_expires_at}`);
+
+    log.push("\nStep 2: Fetching campaigns...");
+    const { campaignObjectiveMap, campaignStatusMap } = await fetchTikTokCampaigns(token);
+    log.push(`Campaigns loaded: ${Object.keys(campaignObjectiveMap).length}`);
+    for (const [cid, obj] of Object.entries(campaignObjectiveMap)) {
+      log.push(`  Campaign ${cid}: objective=${obj}, status=${campaignStatusMap[cid]}`);
+    }
+
+    log.push("\nStep 3: Fetching ads...");
+    const ads = await fetchTikTokAds(token);
+    log.push(`Ads found: ${ads.length}`);
+    for (const ad of ads) {
+      log.push(`  Ad ${ad.ad_id}: "${(ad.ad_name||ad.ad_text||'').substring(0,50)}", campaign=${ad.campaign_id}, primary_status=${ad.primary_status||ad._primary_status}, secondary_status=${ad.secondary_status}`);
+    }
+
+    if (ads.length === 0) {
+      log.push("\nNo ads found — nothing to fetch insights for.");
+      return res.json({ ok: true, log, ads: [], insights: [], processed: [] });
+    }
+
+    log.push("\nStep 4: Fetching insights...");
+    const adIds = ads.map(a => a.ad_id);
+    const insights = await fetchTikTokInsights(token, adIds);
+    log.push(`Insight rows: ${insights.length}`);
+    for (const item of insights) {
+      const m = item.metrics || {};
+      const d = item.dimensions || {};
+      log.push(`  Ad ${d.ad_id}: spend=${m.spend}, impressions=${m.impressions}, reach=${m.reach}, clicks=${m.clicks}, ctr=${m.ctr}, cpc=${m.cpc}, lpv=${m.landing_page_view}`);
+    }
+
+    log.push("\nStep 5: Processing data...");
+    const rows = processTikTokData(ads, insights, campaignObjectiveMap, campaignStatusMap);
+    log.push(`Processed rows (with data): ${rows.length}`);
+    for (const r of rows) {
+      log.push(`  ${r.ad_name.substring(0,40)} | ${r.publisher_platform} | type=${r.campaign_type} | status=${r.ad_status} | spend=${r.spend} | reach=${r.reach} | score=${r.awareness_score??r.engagement_score??r.traffic_score}`);
+    }
+
+    res.json({ ok: true, log, adsCount: ads.length, insightsCount: insights.length, processedCount: rows.length, processed: rows });
+  } catch (err) {
+    log.push(`\nERROR: ${err.message}`);
+    log.push(JSON.stringify(err.response?.data || {}));
+    res.json({ ok: false, log, error: err.message });
   }
 });
 
