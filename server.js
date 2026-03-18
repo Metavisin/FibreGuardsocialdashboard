@@ -610,10 +610,12 @@ async function fetchTikTokAds(token) {
   if (!token) return [];
   try {
     // Use primary_status NOT_DELETE to get ALL ads (active + ended + disabled, just not deleted)
+    // Request creative fields (video_id, image_ids) for thumbnail fetching
     const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
       params: {
         advertiser_id: token.advertiser_id,
         page_size: 200,
+        fields: JSON.stringify(["ad_id", "ad_name", "ad_text", "campaign_id", "campaign_name", "adgroup_id", "adgroup_name", "status", "operation_status", "primary_status", "secondary_status", "create_time", "objective_type", "video_id", "image_ids", "avatar_icon_web_uri", "profile_image_url"]),
         filtering: JSON.stringify({ primary_status: "STATUS_NOT_DELETE" })
       },
       headers: { "Access-Token": token.access_token }
@@ -633,7 +635,11 @@ async function fetchTikTokAds(token) {
     try {
       console.log("TikTok: retrying ad fetch without status filter...");
       const res2 = await axios.get("https://business-api.tiktok.com/open_api/v1.3/ad/get/", {
-        params: { advertiser_id: token.advertiser_id, page_size: 200 },
+        params: {
+          advertiser_id: token.advertiser_id,
+          page_size: 200,
+          fields: JSON.stringify(["ad_id", "ad_name", "ad_text", "campaign_id", "campaign_name", "adgroup_id", "adgroup_name", "status", "operation_status", "primary_status", "secondary_status", "create_time", "objective_type", "video_id", "image_ids", "avatar_icon_web_uri", "profile_image_url"])
+        },
         headers: { "Access-Token": token.access_token }
       });
       const ads = res2.data?.data?.list || [];
@@ -1155,9 +1161,15 @@ app.get("/tiktok-debug", async (req, res) => {
     log.push("\nStep 3: Fetching ads...");
     const ads = await fetchTikTokAds(token);
     log.push(`Ads found: ${ads.length}`);
-    for (const ad of ads) {
-      log.push(`  Ad ${ad.ad_id}: "${(ad.ad_name||ad.ad_text||'').substring(0,50)}", campaign=${ad.campaign_id}, primary_status=${ad.primary_status||ad._primary_status}, secondary_status=${ad.secondary_status}`);
+    // Log first ad's raw keys and creative fields
+    if (ads.length > 0) {
+      log.push(`  Raw ad keys: ${Object.keys(ads[0]).join(', ')}`);
+      log.push(`  First ad creative fields: video_id=${ads[0].video_id}, image_ids=${JSON.stringify(ads[0].image_ids)}, avatar=${ads[0].avatar_icon_web_uri?.substring(0,60) || 'none'}, profile_img=${ads[0].profile_image_url?.substring(0,60) || 'none'}`);
     }
+    for (const ad of ads.slice(0, 10)) {
+      log.push(`  Ad ${ad.ad_id}: "${(ad.ad_name||ad.ad_text||'').substring(0,50)}", campaign=${ad.campaign_id}, video_id=${ad.video_id || 'none'}, secondary_status=${ad.secondary_status}`);
+    }
+    if (ads.length > 10) log.push(`  ... and ${ads.length - 10} more ads`);
 
     if (ads.length === 0) {
       log.push("\nNo ads found — nothing to fetch insights for.");
