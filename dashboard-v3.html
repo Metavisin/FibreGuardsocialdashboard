@@ -1161,8 +1161,8 @@
       const container = document.getElementById(el);
       if (!container) continue;
       const live = ads.filter(d => d.ad_status === 'ACTIVE').length;
-      // Boost only counts ACTIVE ads that score >= 100 (formula still TBD, so 0 for now)
-      const boost = ads.filter(d => d.ad_status === 'ACTIVE' && d._boost === 'boost').length;
+      // Boost is TBD until scoring formula is finalized — hardcoded to 0
+      const boost = 0;
       container.innerHTML = `
         <div class="platform-card-stat">
           <div class="platform-card-stat-value" style="color:var(--green)">${live}</div>
