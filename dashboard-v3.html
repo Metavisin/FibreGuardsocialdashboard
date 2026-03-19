@@ -1029,40 +1029,23 @@
     </div>
     <div class="filter-group" id="platformBadge"></div>
     <div class="filter-group">
-      <span class="filter-label">Campaign</span>
-      <select id="filterCampaign" onchange="applyFilters()">
-        <option value="all">All Campaigns</option>
-      </select>
-    </div>
-    <div class="filter-group">
-      <span class="filter-label">View</span>
-      <div class="pill-group" id="viewPills">
-        <button class="pill active" onclick="setView('latest', this)"><span class="live-dot"></span>Live</button>
-        <button class="pill" onclick="setView('compare', this)">Compare</button>
-      </div>
-    </div>
-    <div class="filter-group">
-      <button class="pill" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; opacity:0.6;">Hide Completed</button>
+      <span class="pill active" style="cursor:default;"><span class="live-dot"></span>Live</span>
     </div>
     <div class="filter-spacer"></div>
     <div class="filter-group">
-      <span class="filter-label">Sort</span>
-      <select id="filterSort" onchange="applyFilters()">
-        <option value="score_desc">Score: High to Low</option>
-        <option value="score_asc">Score: Low to High</option>
-        <option value="reach_desc">Reach: High to Low</option>
-        <option value="impressions_desc">Impressions: High to Low</option>
-      </select>
+      <button class="pill" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; opacity:0.6;">Hide Completed</button>
     </div>
   </div>
 
-  <!-- Hidden platform filter (used by applyFilters) -->
+  <!-- Hidden filters (used internally by applyFilters) -->
   <select id="filterPlatform" style="display:none;">
     <option value="all" selected>All Platforms</option>
     <option value="instagram">Instagram</option>
     <option value="facebook">Facebook</option>
     <option value="tiktok">TikTok</option>
   </select>
+  <select id="filterCampaign" style="display:none;"><option value="all">All Campaigns</option></select>
+  <select id="filterSort" style="display:none;"><option value="score_desc">Score: High to Low</option></select>
 
   <div id="dashboardContent" style="display:none;">
     <div class="loading"><div class="spinner"></div> Loading...</div>
@@ -1167,6 +1150,8 @@
 
   function updatePlatformStats() {
     const source = liveData.length > 0 ? liveData : allData;
+    // Recalculate scores so we can count boost-ready ads
+    recalcScores(source);
     const platforms = {
       instagram: { el: 'igStats', ads: source.filter(d => d.publisher_platform === 'instagram') },
       tiktok: { el: 'ttStats', ads: source.filter(d => d.publisher_platform === 'tiktok') },
@@ -1176,20 +1161,15 @@
       const container = document.getElementById(el);
       if (!container) continue;
       const live = ads.filter(d => d.ad_status === 'ACTIVE').length;
-      const total = ads.length;
-      const spend = ads.reduce((s,d) => s + (d.spend||0), 0);
+      const boost = ads.filter(d => d._boost === 'boost').length;
       container.innerHTML = `
-        <div class="platform-card-stat">
-          <div class="platform-card-stat-value">${total}</div>
-          <div class="platform-card-stat-label">Ads</div>
-        </div>
         <div class="platform-card-stat">
           <div class="platform-card-stat-value" style="color:var(--green)">${live}</div>
           <div class="platform-card-stat-label">Live</div>
         </div>
         <div class="platform-card-stat">
-          <div class="platform-card-stat-value">&euro;${spend.toFixed(0)}</div>
-          <div class="platform-card-stat-label">Spend</div>
+          <div class="platform-card-stat-value" style="color:var(--blue)">${boost}</div>
+          <div class="platform-card-stat-label">Boost</div>
         </div>
       `;
     }
