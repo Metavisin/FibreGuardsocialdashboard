@@ -1161,7 +1161,8 @@
       const container = document.getElementById(el);
       if (!container) continue;
       const live = ads.filter(d => d.ad_status === 'ACTIVE').length;
-      const boost = ads.filter(d => d._boost === 'boost').length;
+      // Boost only counts ACTIVE ads that score >= 100 (formula still TBD, so 0 for now)
+      const boost = ads.filter(d => d.ad_status === 'ACTIVE' && d._boost === 'boost').length;
       container.innerHTML = `
         <div class="platform-card-stat">
           <div class="platform-card-stat-value" style="color:var(--green)">${live}</div>
@@ -1532,21 +1533,12 @@
       return h;
     }
 
-    // Summary
-    const avgScore = ads.length > 0 ? ads.reduce((s,d) => s + (d._score||0), 0) / ads.length : 0;
-    const boost = ads.filter(d => d._boost === 'boost').length;
-    const monitor = ads.filter(d => d._boost === 'monitor').length;
-    const noBoost = ads.filter(d => d._boost === 'no boost').length;
-    const extras = summaryExtras(ads);
-
-    h += `<div class="summary">`;
-    h += `<div class="summary-card"><div class="summary-label">Avg Score</div><div class="summary-value" style="color:${sColor(avgScore)}">${avgScore.toFixed(0)}<span style="font-size:12px;color:var(--text-3)"> pts</span></div></div>`;
-    h += `<div class="summary-card"><div class="summary-label">Boost</div><div class="summary-value" style="color:var(--green)">${boost}</div></div>`;
-    h += `<div class="summary-card"><div class="summary-label">Monitor</div><div class="summary-value" style="color:var(--orange)">${monitor}</div></div>`;
-    h += `<div class="summary-card"><div class="summary-label">No Boost</div><div class="summary-value" style="color:var(--red)">${noBoost}</div></div>`;
-    extras.forEach(([l,v]) => {
-      h += `<div class="summary-card"><div class="summary-label">${l}</div><div class="summary-value">${v}</div></div>`;
-    });
+    // Summary — only 4 blocks, TBD until scoring formula is finalized
+    h += `<div class="summary" style="grid-template-columns: repeat(4, 1fr);">`;
+    h += `<div class="summary-card"><div class="summary-label">Avg Score</div><div class="summary-value" style="color:var(--text-3)">TBD</div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">Boost</div><div class="summary-value" style="color:var(--text-3)">TBD</div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">Monitor</div><div class="summary-value" style="color:var(--text-3)">TBD</div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">No Boost</div><div class="summary-value" style="color:var(--text-3)">TBD</div></div>`;
     h += `</div>`;
 
     // Ad cards
