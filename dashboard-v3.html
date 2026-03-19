@@ -1,0 +1,2583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FibreGuard Ad Performance Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-0: #06080D;
+    --bg-1: #0A0E17;
+    --bg-2: #111825;
+    --bg-3: #1A2236;
+    --bg-hover: #1C2844;
+    --border: rgba(255,255,255,0.06);
+    --border-light: rgba(255,255,255,0.10);
+    --text-1: #F0F2F5;
+    --text-2: #94A3B8;
+    --text-3: #5B6B84;
+    --blue: #60A5FA;
+    --blue-10: rgba(96,165,250,0.10);
+    --blue-20: rgba(96,165,250,0.18);
+    --blue-40: rgba(96,165,250,0.35);
+    --purple: #A78BFA;
+    --purple-10: rgba(167,139,250,0.10);
+    --green: #34D399;
+    --green-10: rgba(52,211,153,0.10);
+    --orange: #FBBF24;
+    --orange-10: rgba(251,191,36,0.10);
+    --red: #F87171;
+    --red-10: rgba(248,113,113,0.10);
+    --gold: #FFD700;
+    --radius: 16px;
+    --radius-sm: 12px;
+    --radius-xs: 8px;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --glass-bg: rgba(255,255,255,0.03);
+    --glass-border: rgba(255,255,255,0.06);
+    --glass-blur: blur(20px);
+    --shadow-card: 0 4px 24px rgba(0,0,0,0.2);
+    --shadow-card-hover: 0 12px 40px rgba(0,0,0,0.35);
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg-0);
+    background-image: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(96,165,250,0.06) 0%, transparent 60%),
+                       radial-gradient(ellipse 50% 40% at 80% 80%, rgba(167,139,250,0.04) 0%, transparent 50%);
+    background-attachment: fixed;
+    color: var(--text-1);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Heading font */
+  h2, h3, .section-title h2, .history-title, .report-title {
+    font-family: 'Poppins', 'Inter', sans-serif;
+  }
+
+  /* TOPNAV */
+  .topnav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px; border-bottom: 1px solid var(--glass-border);
+    background: rgba(6,8,13,0.7); backdrop-filter: blur(24px) saturate(1.4);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topnav-left { display: flex; align-items: center; gap: 14px; }
+  .logo { display: flex; align-items: center; gap: 8px; }
+  .logo img {
+    height: 26px; width: auto; object-fit: contain;
+  }
+  .logo-sep { width: 1px; height: 20px; background: var(--border); }
+  .logo-sub { font-size: 13px; color: var(--text-3); }
+  .topnav-right { display: flex; align-items: center; gap: 10px; }
+  .meta-text { font-size: 11px; color: var(--text-3); }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 8px 14px; border-radius: var(--radius-xs);
+    font-size: 12px; font-weight: 500; font-family: inherit;
+    cursor: pointer; border: 1px solid var(--glass-border);
+    background: var(--glass-bg); color: var(--text-2);
+    transition: all 0.3s var(--ease-out);
+    backdrop-filter: blur(12px);
+  }
+  .btn:hover { border-color: var(--border-light); color: var(--text-1); background: rgba(255,255,255,0.06); transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn svg { width: 13px; height: 13px; }
+
+  /* CONTAINER */
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px 28px; }
+
+  /* FILTERS */
+  .filters-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    margin-bottom: 24px; padding: 14px 18px;
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    backdrop-filter: var(--glass-blur);
+  }
+  .filter-group { display: flex; align-items: center; gap: 5px; }
+  .filter-label {
+    font-size: 10px; font-weight: 600; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  select {
+    background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text-1); padding: 6px 26px 6px 10px;
+    border-radius: var(--radius-xs); font-size: 12px; font-family: inherit;
+    cursor: pointer; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%235B6A85' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center;
+  }
+  select:focus { outline: none; border-color: var(--blue); }
+  .pill-group { display: flex; gap: 3px; }
+  .pill {
+    padding: 6px 13px; border-radius: 20px; font-size: 11px; font-weight: 500;
+    cursor: pointer; background: var(--glass-bg); color: var(--text-3);
+    border: 1px solid var(--glass-border); transition: all 0.3s var(--ease-out); font-family: inherit;
+  }
+  .pill:hover { color: var(--text-2); background: rgba(255,255,255,0.05); }
+  .pill.active { background: var(--blue-10); color: var(--blue); border-color: var(--blue-20); box-shadow: 0 0 12px rgba(96,165,250,0.15); }
+  .live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); margin-right: 4px; animation: livePulse 2s infinite; }
+  @keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .filter-spacer { flex: 1; }
+
+  /* TBD BANNER */
+  .tbd-banner {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; margin-bottom: 20px;
+    background: var(--orange-10); border: 1px solid rgba(251,191,36,0.12);
+    border-radius: var(--radius-xs); font-size: 12px; color: var(--orange);
+  }
+
+  /* SECTION */
+  .section { margin-bottom: 36px; }
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .section-title { display: flex; align-items: center; gap: 10px; }
+  .section-title h2 { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+  .section-icon {
+    width: 28px; height: 28px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center; font-size: 13px;
+  }
+  .icon-awareness { background: var(--blue-10); color: var(--blue); }
+  .icon-engagement { background: var(--purple-10); color: var(--purple); }
+  .icon-traffic { background: var(--green-10); color: var(--green); }
+  .section-count {
+    font-size: 11px; color: var(--text-3); background: var(--bg-2);
+    padding: 3px 8px; border-radius: 10px; border: 1px solid var(--border);
+  }
+
+  /* FORMULA */
+  .formula {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 10px 14px; margin-bottom: 14px;
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    border-radius: var(--radius-xs); font-size: 11px; color: var(--text-3);
+    backdrop-filter: blur(12px);
+  }
+  .formula strong { color: var(--text-2); }
+  .chip {
+    display: inline-flex; padding: 2px 7px; border-radius: 4px;
+    font-weight: 600; font-size: 10px;
+  }
+  .chip-blue { background: var(--blue-10); color: var(--blue); }
+  .chip-purple { background: var(--purple-10); color: var(--purple); }
+  .chip-green { background: var(--green-10); color: var(--green); }
+
+  /* Score info bubble */
+  .score-info-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text-3); font-size: 11px; font-weight: 700;
+    cursor: pointer; margin-left: 8px; transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .score-info-btn:hover { background: var(--text-3); color: var(--bg-0); }
+  .score-info-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.2s; pointer-events: none;
+  }
+  .score-info-overlay.open { opacity: 1; pointer-events: all; }
+  .score-info-modal {
+    background: var(--bg-0); border: 1px solid var(--border);
+    border-radius: var(--radius-md); max-width: 520px; width: 90%;
+    padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    max-height: 80vh; overflow-y: auto;
+  }
+  .score-info-modal h3 { margin: 0 0 6px; font-size: 16px; color: var(--text-1); }
+  .score-info-modal .score-info-sub { font-size: 12px; color: var(--text-3); margin-bottom: 16px; }
+  .score-info-modal .score-formula-block {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-xs); padding: 12px 14px; margin-bottom: 10px;
+    font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px;
+    line-height: 1.7; color: var(--text-2);
+  }
+  .score-info-modal .score-formula-block strong { color: var(--text-1); }
+  .score-info-modal .score-legend {
+    display: flex; gap: 16px; margin-top: 14px; font-size: 12px; flex-wrap: wrap;
+  }
+  .score-info-modal .score-legend span { display: flex; align-items: center; gap: 5px; }
+  .score-info-modal .score-legend .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .score-info-modal .score-targets { margin-top: 12px; font-size: 12px; color: var(--text-3); line-height: 1.6; }
+  .score-info-modal .score-targets strong { color: var(--text-2); }
+  .score-info-close {
+    float: right; background: none; border: none; color: var(--text-3);
+    font-size: 20px; cursor: pointer; padding: 0; line-height: 1;
+  }
+  .score-info-close:hover { color: var(--text-1); }
+
+  /* SUMMARY */
+  .summary {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px; margin-bottom: 18px;
+  }
+  .summary-card {
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm); padding: 16px;
+    backdrop-filter: blur(16px);
+    transition: all 0.3s var(--ease-out);
+  }
+  .summary-card:hover {
+    background: rgba(255,255,255,0.05); border-color: var(--border-light);
+    transform: translateY(-2px); box-shadow: var(--shadow-card);
+  }
+  .summary-label {
+    font-size: 10px; font-weight: 600; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px;
+  }
+  .summary-value { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .summary-sub { font-size: 10px; color: var(--text-3); margin-top: 2px; }
+
+  /* AD GRID */
+  .ad-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+
+  /* AD CARD */
+  .ad-card {
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    border-radius: var(--radius); overflow: hidden;
+    transition: all 0.4s var(--ease-out); position: relative;
+    backdrop-filter: blur(16px);
+    box-shadow: var(--shadow-card);
+  }
+  .ad-card:hover {
+    border-color: rgba(255,255,255,0.12);
+    transform: translateY(-4px) scale(1.008);
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  /* WINNER CARD */
+  .ad-card.winner {
+    border-color: rgba(255,215,0,0.35);
+    box-shadow: 0 0 24px rgba(255,215,0,0.08), var(--shadow-card);
+  }
+  .ad-card.winner:hover {
+    box-shadow: 0 0 36px rgba(255,215,0,0.14), var(--shadow-card-hover);
+  }
+
+  .winner-crown {
+    position: absolute; top: -1px; left: 50%; transform: translateX(-50%);
+    z-index: 10; background: var(--gold); color: #000;
+    font-size: 10px; font-weight: 800; padding: 3px 12px;
+    border-radius: 0 0 8px 8px; letter-spacing: 0.5px;
+    text-transform: uppercase;
+    box-shadow: 0 2px 8px rgba(255,215,0,0.3);
+  }
+
+  /* VISUAL */
+  .ad-visual {
+    height: 160px; background: var(--bg-1);
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ad-visual img {
+    width: 100%; height: 100%; object-fit: cover;
+    transition: transform 0.6s var(--ease-out);
+  }
+  .ad-card:hover .ad-visual img { transform: scale(1.05); }
+  .ad-visual-placeholder {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    color: var(--text-3); opacity: 0.5;
+  }
+  .ad-visual-placeholder svg { width: 28px; height: 28px; }
+  .ad-visual-placeholder span { font-size: 10px; }
+
+  .badge-platform {
+    position: absolute; top: 8px; left: 8px;
+    padding: 3px 8px; border-radius: 5px;
+    font-size: 10px; font-weight: 600;
+    backdrop-filter: blur(8px);
+  }
+  .plat-instagram { background: rgba(225,48,108,0.85); color: white; }
+  .plat-facebook { background: rgba(24,119,242,0.85); color: white; }
+  .plat-tiktok { background: rgba(0,0,0,0.9); color: #69C9D0; font-weight: 700; }
+  .plat-unknown { background: rgba(85,96,120,0.85); color: white; }
+
+  .badge-status {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    padding: 2px 8px; border-radius: 4px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; backdrop-filter: blur(8px);
+  }
+  .status-live { background: rgba(52,211,153,0.85); color: #000; }
+  .status-paused { background: rgba(251,191,36,0.85); color: #000; }
+  .status-ended { background: rgba(248,113,113,0.7); color: #fff; }
+  .status-budget-spent { background: rgba(120,120,120,0.85); color: #fff; }
+  .status-new { background: rgba(96,165,250,0.85); color: #000; }
+
+  /* Grayed-out card for completed / paused ads */
+  .ad-card.budget-spent {
+    opacity: 0.3;
+    filter: grayscale(80%);
+    order: 999; /* push to end */
+  }
+  .ad-card.budget-spent:hover { opacity: 0.55; filter: grayscale(50%); }
+  /* When "Hide Completed" toggle is active, fully hide them */
+  .ad-grid.hide-completed .ad-card.budget-spent { display: none; }
+
+  /* Live ad card — bold green glow to stand out */
+  .ad-card.ad-live {
+    border: 1.5px solid rgba(52,211,153,0.50);
+    background: linear-gradient(160deg, rgba(52,211,153,0.10) 0%, var(--glass-bg) 50%);
+    box-shadow: 0 0 24px rgba(52,211,153,0.12), 0 0 8px rgba(52,211,153,0.08), var(--shadow-card);
+  }
+  .ad-card.ad-live:hover {
+    border-color: rgba(52,211,153,0.65);
+    box-shadow: 0 0 36px rgba(52,211,153,0.18), 0 0 12px rgba(52,211,153,0.12), var(--shadow-card-hover);
+    transform: translateY(-3px);
+  }
+  .ad-card.ad-live::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, rgba(52,211,153,0.2), rgba(52,211,153,0.9), rgba(52,211,153,0.2));
+    border-radius: 8px 8px 0 0;
+    z-index: 5;
+  }
+  .ad-card.ad-live::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, rgba(52,211,153,0.2), rgba(52,211,153,0.9), rgba(52,211,153,0.2));
+    border-radius: 0 0 8px 8px;
+    z-index: 5;
+  }
+
+  /* New/pending ad card */
+  .ad-card.ad-new {
+    border: 1px dashed rgba(96,165,250,0.4);
+  }
+
+  .badge-score {
+    position: absolute; top: 10px; right: 10px;
+    padding: 6px 12px; border-radius: 10px;
+    font-size: 20px; font-weight: 800;
+    background: rgba(0,0,0,0.55); backdrop-filter: blur(16px) saturate(1.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    letter-spacing: -0.02em;
+  }
+
+  .score-label {
+    font-size: 8px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: rgba(255,255,255,0.5);
+    display: block; text-align: center; margin-top: -1px;
+  }
+
+  /* CARD BODY */
+  .ad-body { padding: 16px; }
+  .ad-name {
+    font-size: 12.5px; font-weight: 500; line-height: 1.45;
+    margin-bottom: 12px; color: var(--text-1);
+    display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden;
+    min-height: 36px;
+  }
+
+  /* AI INSIGHT */
+  .ai-insight {
+    display: flex; align-items: flex-start; gap: 7px;
+    padding: 9px 11px; margin-bottom: 12px;
+    background: linear-gradient(135deg, rgba(96,165,250,0.06), rgba(167,139,250,0.06));
+    border: 1px solid rgba(96,165,250,0.10);
+    border-radius: var(--radius-xs);
+    font-size: 11px; line-height: 1.5; color: var(--text-2);
+    backdrop-filter: blur(8px);
+  }
+  .ai-insight-icon {
+    flex-shrink: 0; margin-top: 1px;
+    font-size: 10px; opacity: 0.7;
+  }
+
+  .ad-metrics {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    margin-bottom: 12px;
+  }
+  .ad-metric {
+    padding: 8px 10px; background: rgba(255,255,255,0.02); border-radius: var(--radius-xs);
+    border: 1px solid rgba(255,255,255,0.03);
+    transition: background 0.2s ease;
+  }
+  .ad-metric:hover { background: rgba(255,255,255,0.04); }
+  .ad-metric-label {
+    font-size: 9px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.4px; color: var(--text-3); margin-bottom: 2px;
+  }
+  .ad-metric-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+  /* CARD FOOTER */
+  .ad-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 10px; border-top: 1px solid var(--border);
+  }
+  .boost-pill {
+    padding: 4px 10px; border-radius: 14px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .boost-green { color: var(--green); background: var(--green-10); }
+  .boost-orange { color: var(--orange); background: var(--orange-10); }
+  .boost-red { color: var(--red); background: var(--red-10); }
+
+  .bench-tbd {
+    font-size: 10px; color: var(--text-3); padding: 3px 7px;
+    background: var(--bg-1); border-radius: 4px;
+  }
+
+  /* SPARKLINE */
+  .sparkline-wrap {
+    margin-bottom: 12px; padding: 9px 10px;
+    background: rgba(255,255,255,0.02); border-radius: var(--radius-xs);
+    border: 1px solid rgba(255,255,255,0.03);
+  }
+  .sparkline-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 5px;
+  }
+  .sparkline-title {
+    font-size: 9px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.3px; color: var(--text-3);
+  }
+  .sparkline-trend {
+    font-size: 10px; font-weight: 700; display: flex; align-items: center; gap: 3px;
+  }
+  .sparkline-trend.up { color: var(--green); }
+  .sparkline-trend.down { color: var(--red); }
+  .sparkline-trend.flat { color: var(--text-3); }
+  .sparkline-svg { display: block; width: 100%; height: 32px; }
+  .sparkline-empty {
+    font-size: 9px; color: var(--text-3); opacity: 0.6;
+    text-align: center; padding: 6px 0;
+  }
+
+  /* COMPARE VIEW */
+  .compare-group {
+    margin-bottom: 20px; background: var(--bg-2);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .compare-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
+  }
+  .compare-thumb {
+    width: 48px; height: 48px; border-radius: 8px;
+    object-fit: cover; flex-shrink: 0;
+  }
+  .compare-thumb-placeholder {
+    width: 48px; height: 48px; border-radius: 8px;
+    background: var(--bg-3); display: flex; align-items: center;
+    justify-content: center; color: var(--text-3); font-size: 16px; flex-shrink: 0;
+  }
+  .compare-ad-info { flex: 1; min-width: 0; }
+  .compare-ad-name {
+    font-size: 12px; font-weight: 600; color: var(--text-1);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .compare-ad-type {
+    font-size: 10px; color: var(--text-3); margin-top: 2px;
+  }
+  .compare-table {
+    width: 100%; border-collapse: collapse;
+  }
+  .compare-table th {
+    padding: 8px 12px; font-size: 9px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    color: var(--text-3); text-align: left;
+    border-bottom: 1px solid var(--border); background: var(--bg-1);
+  }
+  .compare-table td {
+    padding: 10px 12px; font-size: 13px; font-weight: 600;
+    color: var(--text-1); border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  .compare-table tr:last-child td { border-bottom: none; }
+  .compare-table tr:hover td { background: var(--bg-hover); }
+  .compare-plat-cell {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .compare-plat-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .dot-instagram { background: #E1306C; }
+  .dot-facebook { background: #1877F2; }
+  .dot-tiktok { background: #69C9D0; }
+  .dot-unknown { background: #556078; }
+  .compare-winner-cell {
+    color: var(--gold); font-weight: 800;
+  }
+  .compare-best {
+    font-size: 8px; font-weight: 700; color: var(--gold);
+    background: rgba(255,215,0,0.1); padding: 1px 5px;
+    border-radius: 3px; margin-left: 4px; text-transform: uppercase;
+  }
+  .compare-insight {
+    padding: 10px 16px; border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--text-2); line-height: 1.4;
+    background: linear-gradient(135deg, rgba(83,183,232,0.03), rgba(168,85,247,0.03));
+  }
+  .compare-empty {
+    padding: 10px 16px; font-size: 11px; color: var(--text-3);
+    text-align: center;
+  }
+  .compare-stat {
+    background: var(--bg-1); border-radius: var(--radius-xs);
+    padding: 10px 12px; text-align: center;
+  }
+
+  /* EMPTY */
+  .empty {
+    text-align: center; padding: 44px; color: var(--text-3);
+    border: 1px dashed rgba(255,255,255,0.08); border-radius: var(--radius);
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+  }
+  .empty h3 { font-size: 14px; color: var(--text-2); margin-bottom: 4px; font-weight: 600; }
+  .empty p { font-size: 12px; }
+
+  /* LOADING */
+  .loading {
+    display: flex; align-items: center; justify-content: center;
+    padding: 60px; color: var(--text-3); font-size: 13px;
+  }
+  .spinner {
+    width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.06);
+    border-top-color: var(--blue); border-radius: 50%;
+    animation: spin 0.8s cubic-bezier(0.5, 0, 0.5, 1) infinite; margin-right: 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* FADE-IN ANIMATION */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .ad-card { animation: fadeInUp 0.5s var(--ease-out) both; }
+  .ad-card:nth-child(1) { animation-delay: 0.02s; }
+  .ad-card:nth-child(2) { animation-delay: 0.06s; }
+  .ad-card:nth-child(3) { animation-delay: 0.10s; }
+  .ad-card:nth-child(4) { animation-delay: 0.14s; }
+  .ad-card:nth-child(5) { animation-delay: 0.18s; }
+  .ad-card:nth-child(6) { animation-delay: 0.22s; }
+  .ad-card:nth-child(7) { animation-delay: 0.26s; }
+  .ad-card:nth-child(8) { animation-delay: 0.30s; }
+  .summary-card { animation: fadeInUp 0.4s var(--ease-out) both; }
+  .summary-card:nth-child(1) { animation-delay: 0s; }
+  .summary-card:nth-child(2) { animation-delay: 0.04s; }
+  .summary-card:nth-child(3) { animation-delay: 0.08s; }
+  .summary-card:nth-child(4) { animation-delay: 0.12s; }
+  .summary-card:nth-child(5) { animation-delay: 0.16s; }
+  .summary-card:nth-child(6) { animation-delay: 0.20s; }
+  .summary-card:nth-child(7) { animation-delay: 0.24s; }
+
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+
+  /* HISTORY MODAL */
+  .history-overlay {
+    display: none; position: fixed; inset: 0; z-index: 999;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(6px);
+    overflow-y: auto; padding: 40px 20px;
+  }
+  .history-overlay.open { display: flex; justify-content: center; align-items: flex-start; }
+  .history-container {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius); max-width: 860px; width: 100%;
+    padding: 28px; position: relative;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+  }
+  .history-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .history-title { font-size: 18px; font-weight: 700; flex: 1; }
+  .history-close {
+    background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text-2); width: 32px; height: 32px;
+    border-radius: 8px; cursor: pointer; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .history-close:hover { background: var(--bg-3); color: var(--text-1); }
+  .history-empty {
+    text-align: center; padding: 48px; color: var(--text-3);
+  }
+  .history-empty-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.5; }
+  .history-kpis {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px;
+  }
+  .history-kpi {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 12px; text-align: center;
+  }
+  .history-kpi-label { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.3px; }
+  .history-kpi-value { font-size: 18px; font-weight: 800; margin-top: 2px; }
+  .history-kpi-delta { font-size: 10px; font-weight: 600; margin-top: 2px; }
+  .history-chart-box {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 16px; margin-bottom: 16px;
+  }
+  .history-chart-title { font-size: 12px; font-weight: 600; color: var(--text-3); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .history-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .history-snapshots-table {
+    width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 16px;
+  }
+  .history-snapshots-table th {
+    text-align: left; padding: 8px 10px; color: var(--text-3); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.3px; font-size: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .history-snapshots-table td {
+    padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text-2);
+  }
+  .history-snapshots-table tr:hover td { background: var(--bg-2); }
+
+  /* REPORT MODAL */
+  .report-overlay {
+    display: none; position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(6px);
+    overflow-y: auto; padding: 40px 20px;
+  }
+  .report-overlay.open { display: flex; justify-content: center; align-items: flex-start; }
+  .report-container {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius); max-width: 900px; width: 100%;
+    padding: 32px; position: relative;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+  }
+  .report-close {
+    position: absolute; top: 16px; right: 16px;
+    background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text-2); width: 32px; height: 32px;
+    border-radius: 8px; cursor: pointer; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .report-close:hover { background: var(--bg-3); color: var(--text-1); }
+  .report-title { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+  .report-date { font-size: 12px; color: var(--text-3); margin-bottom: 24px; }
+  .report-summary {
+    font-size: 14px; line-height: 1.6; color: var(--text-2);
+    margin-bottom: 24px; padding: 16px; background: var(--bg-2);
+    border-radius: var(--radius-sm); border: 1px solid var(--border);
+  }
+  .report-highlights {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 24px;
+  }
+  .report-highlight {
+    padding: 8px 14px; background: var(--green-10); color: var(--green);
+    border-radius: 8px; font-size: 12px; font-weight: 500;
+    border: 1px solid rgba(52,211,153,0.15);
+  }
+  .report-concern {
+    padding: 8px 14px; background: var(--red-10); color: var(--red);
+    border-radius: 8px; font-size: 12px; font-weight: 500;
+    border: 1px solid rgba(248,113,113,0.15);
+  }
+  .report-section {
+    margin-bottom: 24px; padding: 20px; background: var(--bg-2);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+  }
+  .report-section-title {
+    font-size: 15px; font-weight: 700; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .report-section-content {
+    font-size: 13px; line-height: 1.6; color: var(--text-2); margin-bottom: 12px;
+  }
+  .report-metrics-row {
+    display: flex; gap: 12px; flex-wrap: wrap;
+  }
+  .report-metric-card {
+    flex: 1; min-width: 120px; padding: 12px;
+    background: var(--bg-1); border-radius: var(--radius-xs);
+    border: 1px solid var(--border);
+  }
+  .report-metric-label { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.3px; }
+  .report-metric-value { font-size: 18px; font-weight: 700; margin-top: 2px; }
+  .report-metric-trend { font-size: 10px; font-weight: 600; margin-top: 2px; }
+  .trend-up { color: var(--green); }
+  .trend-down { color: var(--red); }
+  .trend-neutral { color: var(--text-3); }
+  .report-chart-container {
+    margin: 20px 0; padding: 16px; background: var(--bg-2);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+  }
+  .report-chart-title { font-size: 12px; font-weight: 600; color: var(--text-3); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .report-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .report-rec {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 12px; background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius-xs); margin-bottom: 8px;
+  }
+  .report-rec-priority {
+    padding: 2px 8px; border-radius: 4px; font-size: 9px;
+    font-weight: 700; text-transform: uppercase; flex-shrink: 0;
+  }
+  .priority-high { background: var(--red-10); color: var(--red); }
+  .priority-medium { background: var(--orange-10); color: var(--orange); }
+  .priority-low { background: var(--blue-10); color: var(--blue); }
+  .report-rec-text { font-size: 13px; color: var(--text-2); }
+  .report-rec-reason { font-size: 11px; color: var(--text-3); margin-top: 3px; }
+
+  /* Date picker for report */
+  .report-picker {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 16px; padding: 40px;
+  }
+  .report-picker h3 { font-size: 18px; font-weight: 700; }
+  .report-picker p { font-size: 13px; color: var(--text-3); }
+  .report-date-options { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .report-date-btn {
+    padding: 10px 20px; border-radius: var(--radius-xs);
+    background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text-2); font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all 0.15s; font-family: inherit;
+  }
+  .report-date-btn:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-10); }
+  .report-loading {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 12px; padding: 60px; color: var(--text-3);
+  }
+  .report-loading .spinner { margin: 0; }
+
+  @media (max-width: 768px) {
+    .container { padding: 14px; }
+    .topnav { padding: 10px 14px; }
+    .ad-grid { grid-template-columns: 1fr; }
+    .filters-bar { flex-direction: column; align-items: stretch; }
+    .summary { grid-template-columns: repeat(2, 1fr); }
+    .report-charts-grid { grid-template-columns: 1fr; }
+    .report-container { padding: 20px; }
+    .platform-cards { grid-template-columns: 1fr !important; }
+  }
+
+  /* ====== LOGIN SCREEN ====== */
+  .login-screen {
+    position: fixed; inset: 0; z-index: 10000;
+    background: var(--bg-0);
+    background-image: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(96,165,250,0.08) 0%, transparent 60%),
+                       radial-gradient(ellipse 50% 40% at 80% 80%, rgba(167,139,250,0.05) 0%, transparent 50%);
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .login-screen.hidden {
+    opacity: 0; pointer-events: none; transform: scale(1.02);
+  }
+  .login-box {
+    text-align: center; max-width: 380px; width: 90%;
+  }
+  .login-logo {
+    margin-bottom: 32px;
+  }
+  .login-logo img {
+    height: 36px; opacity: 0.9;
+  }
+  .login-subtitle {
+    font-size: 13px; color: var(--text-3); margin-top: 8px;
+    letter-spacing: 0.5px;
+  }
+  .login-code-group {
+    display: flex; gap: 12px; justify-content: center; margin: 32px 0 20px;
+  }
+  .login-code-input {
+    width: 56px; height: 64px; text-align: center;
+    font-size: 24px; font-weight: 700; font-family: 'Poppins', sans-serif;
+    background: var(--bg-2); border: 2px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text-1);
+    outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+    caret-color: var(--blue);
+  }
+  .login-code-input:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(96,165,250,0.15);
+  }
+  .login-code-input.error {
+    border-color: var(--red);
+    box-shadow: 0 0 0 3px rgba(248,113,113,0.15);
+    animation: loginShake 0.4s ease;
+  }
+  @keyframes loginShake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-6px); }
+    40%, 80% { transform: translateX(6px); }
+  }
+  .login-hint {
+    font-size: 12px; color: var(--text-3); margin-top: 6px;
+    min-height: 20px;
+  }
+  .login-hint.error { color: var(--red); }
+
+  /* ====== PLATFORM SELECTOR ====== */
+  .platform-selector {
+    display: none;
+    min-height: calc(100vh - 60px);
+    align-items: center; justify-content: center;
+    padding: 40px 28px;
+  }
+  .platform-selector.active { display: flex; }
+  .platform-selector-inner {
+    text-align: center; max-width: 900px; width: 100%;
+  }
+  .platform-selector-title {
+    font-family: 'Poppins', sans-serif;
+    font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+  .platform-selector-sub {
+    font-size: 14px; color: var(--text-3); margin-bottom: 40px;
+  }
+  .platform-cards {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 20px; margin-bottom: 32px;
+  }
+  .platform-card {
+    background: var(--glass-bg);
+    border: 1.5px solid var(--glass-border);
+    border-radius: var(--radius);
+    padding: 40px 24px 32px;
+    cursor: pointer;
+    transition: all 0.4s var(--ease-out);
+    position: relative; overflow: hidden;
+    backdrop-filter: blur(16px);
+  }
+  .platform-card:hover {
+    transform: translateY(-6px) scale(1.02);
+    box-shadow: var(--shadow-card-hover);
+  }
+  .platform-card:active { transform: translateY(-2px) scale(1.01); }
+
+  .platform-card.card-instagram:hover {
+    border-color: rgba(225,48,108,0.5);
+    box-shadow: 0 0 40px rgba(225,48,108,0.12), var(--shadow-card-hover);
+  }
+  .platform-card.card-tiktok:hover {
+    border-color: rgba(105,201,208,0.5);
+    box-shadow: 0 0 40px rgba(105,201,208,0.12), var(--shadow-card-hover);
+  }
+  .platform-card.card-facebook:hover {
+    border-color: rgba(24,119,242,0.5);
+    box-shadow: 0 0 40px rgba(24,119,242,0.12), var(--shadow-card-hover);
+  }
+
+  .platform-card-logo {
+    width: 64px; height: 64px; margin: 0 auto 20px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .platform-card-logo svg { width: 100%; height: 100%; }
+  .platform-card-name {
+    font-family: 'Poppins', sans-serif;
+    font-size: 20px; font-weight: 700; margin-bottom: 6px;
+  }
+  .platform-card-desc {
+    font-size: 12px; color: var(--text-3); line-height: 1.5;
+  }
+  .platform-card-stats {
+    display: flex; gap: 16px; justify-content: center; margin-top: 16px;
+    padding-top: 16px; border-top: 1px solid var(--border);
+  }
+  .platform-card-stat {
+    text-align: center;
+  }
+  .platform-card-stat-value {
+    font-size: 18px; font-weight: 700; letter-spacing: -0.01em;
+  }
+  .platform-card-stat-label {
+    font-size: 9px; color: var(--text-3); text-transform: uppercase;
+    letter-spacing: 0.4px; margin-top: 2px;
+  }
+  .platform-back-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: var(--radius-xs);
+    font-size: 12px; font-weight: 500; font-family: inherit;
+    cursor: pointer; border: 1px solid var(--glass-border);
+    background: var(--glass-bg); color: var(--text-2);
+    transition: all 0.3s var(--ease-out);
+    margin-bottom: 16px;
+  }
+  .platform-back-btn:hover {
+    border-color: var(--border-light); color: var(--text-1);
+    background: rgba(255,255,255,0.06);
+  }
+  .platform-all-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 12px; padding: 10px 24px; border-radius: var(--radius-xs);
+    font-size: 13px; font-weight: 500; font-family: inherit;
+    cursor: pointer; border: 1px solid var(--glass-border);
+    background: var(--glass-bg); color: var(--text-2);
+    transition: all 0.3s var(--ease-out);
+  }
+  .platform-all-btn:hover {
+    border-color: var(--border-light); color: var(--text-1);
+    background: rgba(255,255,255,0.06); transform: translateY(-1px);
+  }
+</style>
+</head>
+<body>
+
+<!-- ====== LOGIN SCREEN ====== -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-box">
+    <div class="login-logo">
+      <img src="/assets/White fibreguard logo.png" alt="FibreGuard">
+      <div class="login-subtitle">Ad Performance Dashboard</div>
+    </div>
+    <div class="login-code-group">
+      <input class="login-code-input" id="code0" type="text" maxlength="1" inputmode="numeric" autocomplete="off">
+      <input class="login-code-input" id="code1" type="text" maxlength="1" inputmode="numeric" autocomplete="off">
+      <input class="login-code-input" id="code2" type="text" maxlength="1" inputmode="numeric" autocomplete="off">
+      <input class="login-code-input" id="code3" type="text" maxlength="1" inputmode="numeric" autocomplete="off">
+    </div>
+    <div class="login-hint" id="loginHint">Enter 4-digit access code</div>
+  </div>
+</div>
+
+<nav class="topnav" id="mainNav" style="display:none;">
+  <div class="topnav-left">
+    <div class="logo">
+      <img src="/assets/White fibreguard logo.png" alt="FibreGuard">
+    </div>
+    <div class="logo-sep"></div>
+    <span class="logo-sub">Ad Performance</span>
+  </div>
+  <div class="topnav-right">
+    <span class="meta-text" id="lastUpdated"></span>
+    <button class="btn" onclick="openReport()" style="background:var(--blue-10); border-color:var(--blue-20); color:var(--blue);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      Report
+    </button>
+    <button class="btn" onclick="loadData()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      Refresh
+    </button>
+  </div>
+</nav>
+
+<div class="container" id="mainContainer" style="display:none;">
+
+  <!-- Platform Selector (landing page after login) -->
+  <div class="platform-selector active" id="platformSelector">
+    <div class="platform-selector-inner">
+      <div class="platform-selector-title">Choose a Platform</div>
+      <div class="platform-selector-sub">Select a platform to view campaign performance</div>
+      <div class="platform-cards">
+        <!-- Instagram -->
+        <div class="platform-card card-instagram" onclick="selectPlatform('instagram')">
+          <div class="platform-card-logo">
+            <svg viewBox="0 0 24 24" fill="none">
+              <defs><linearGradient id="igGrad" x1="0" y1="24" x2="24" y2="0">
+                <stop offset="0%" stop-color="#feda75"/><stop offset="25%" stop-color="#fa7e1e"/>
+                <stop offset="50%" stop-color="#d62976"/><stop offset="75%" stop-color="#962fbf"/>
+                <stop offset="100%" stop-color="#4f5bd5"/>
+              </linearGradient></defs>
+              <rect x="2" y="2" width="20" height="20" rx="5" stroke="url(#igGrad)" stroke-width="1.8" fill="none"/>
+              <circle cx="12" cy="12" r="5" stroke="url(#igGrad)" stroke-width="1.8" fill="none"/>
+              <circle cx="17.5" cy="6.5" r="1.2" fill="url(#igGrad)"/>
+            </svg>
+          </div>
+          <div class="platform-card-name" style="color:#E1306C;">Instagram</div>
+          <div class="platform-card-desc">Stories, Reels & Feed ads</div>
+          <div class="platform-card-stats" id="igStats"></div>
+        </div>
+        <!-- TikTok -->
+        <div class="platform-card card-tiktok" onclick="selectPlatform('tiktok')">
+          <div class="platform-card-logo">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M16.6 5.82C15.56 4.94 14.88 3.62 14.75 2.15V2H11.17V15.58C11.17 17.07 9.96 18.28 8.47 18.28C6.98 18.28 5.77 17.07 5.77 15.58C5.77 14.09 6.98 12.88 8.47 12.88C8.76 12.88 9.04 12.92 9.3 13V9.36C9.03 9.32 8.75 9.3 8.47 9.3C5 9.3 2.19 12.11 2.19 15.58C2.19 19.05 5 21.86 8.47 21.86C11.94 21.86 14.75 19.05 14.75 15.58V8.64C16.05 9.61 17.67 10.18 19.42 10.18V6.6C18.36 6.6 17.39 6.3 16.6 5.82Z" fill="#69C9D0"/>
+              <path d="M16.6 5.82C15.56 4.94 14.88 3.62 14.75 2.15V2H11.17V15.58C11.17 17.07 9.96 18.28 8.47 18.28C6.98 18.28 5.77 17.07 5.77 15.58C5.77 14.09 6.98 12.88 8.47 12.88C8.76 12.88 9.04 12.92 9.3 13V9.36" fill="none" stroke="#EE1D52" stroke-width="0.3" opacity="0.5"/>
+            </svg>
+          </div>
+          <div class="platform-card-name" style="color:#69C9D0;">TikTok</div>
+          <div class="platform-card-desc">In-Feed & Spark ads</div>
+          <div class="platform-card-stats" id="ttStats"></div>
+        </div>
+        <!-- Facebook -->
+        <div class="platform-card card-facebook" onclick="selectPlatform('facebook')">
+          <div class="platform-card-logo">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M12 2C6.477 2 2 6.477 2 12C2 16.991 5.657 21.128 10.438 21.879V14.89H7.898V12H10.438V9.797C10.438 7.291 11.93 5.907 14.215 5.907C15.309 5.907 16.453 6.102 16.453 6.102V8.562H15.193C13.95 8.562 13.563 9.333 13.563 10.124V12H16.336L15.893 14.89H13.563V21.879C18.343 21.129 22 16.99 22 12C22 6.477 17.523 2 12 2Z" fill="#1877F2"/>
+            </svg>
+          </div>
+          <div class="platform-card-name" style="color:#1877F2;">Facebook</div>
+          <div class="platform-card-desc">Feed & Story ads</div>
+          <div class="platform-card-stats" id="fbStats"></div>
+        </div>
+      </div>
+      <button class="platform-all-btn" onclick="selectPlatform('all')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        View All Platforms
+      </button>
+    </div>
+  </div>
+
+  <!-- Filters bar (shown after platform selection) -->
+  <div class="filters-bar" id="filtersBar" style="display:none;">
+    <div class="filter-group">
+      <button class="platform-back-btn" onclick="backToPlatforms()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Platforms
+      </button>
+    </div>
+    <div class="filter-group" id="platformBadge"></div>
+    <div class="filter-group">
+      <span class="filter-label">Campaign</span>
+      <select id="filterCampaign" onchange="applyFilters()">
+        <option value="all">All Campaigns</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">View</span>
+      <div class="pill-group" id="viewPills">
+        <button class="pill active" onclick="setView('latest', this)"><span class="live-dot"></span>Live</button>
+        <button class="pill" onclick="setView('compare', this)">Compare</button>
+      </div>
+    </div>
+    <div class="filter-group">
+      <button class="pill" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; opacity:0.6;">Hide Completed</button>
+    </div>
+    <div class="filter-spacer"></div>
+    <div class="filter-group">
+      <span class="filter-label">Sort</span>
+      <select id="filterSort" onchange="applyFilters()">
+        <option value="score_desc">Score: High to Low</option>
+        <option value="score_asc">Score: Low to High</option>
+        <option value="reach_desc">Reach: High to Low</option>
+        <option value="impressions_desc">Impressions: High to Low</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Hidden platform filter (used by applyFilters) -->
+  <select id="filterPlatform" style="display:none;">
+    <option value="all" selected>All Platforms</option>
+    <option value="instagram">Instagram</option>
+    <option value="facebook">Facebook</option>
+    <option value="tiktok">TikTok</option>
+  </select>
+
+  <div id="dashboardContent" style="display:none;">
+    <div class="loading"><div class="spinner"></div> Loading...</div>
+  </div>
+</div>
+
+<script>
+  // ====== LOGIN SYSTEM ======
+  const ACCESS_CODE = '9876';
+
+  function initLogin() {
+    // Check if already logged in this session
+    if (sessionStorage.getItem('fg_auth') === 'true') {
+      unlockDashboard();
+      return;
+    }
+    const inputs = [0,1,2,3].map(i => document.getElementById('code' + i));
+    inputs[0].focus();
+
+    inputs.forEach((inp, i) => {
+      inp.addEventListener('input', (e) => {
+        // Allow only digits
+        inp.value = inp.value.replace(/\D/g, '');
+        if (inp.value && i < 3) inputs[i + 1].focus();
+        // Clear error state
+        inputs.forEach(el => el.classList.remove('error'));
+        document.getElementById('loginHint').className = 'login-hint';
+        document.getElementById('loginHint').textContent = 'Enter 4-digit access code';
+
+        // Check if all 4 digits entered
+        const code = inputs.map(el => el.value).join('');
+        if (code.length === 4) {
+          if (code === ACCESS_CODE) {
+            sessionStorage.setItem('fg_auth', 'true');
+            // Success animation
+            inputs.forEach(el => { el.style.borderColor = 'var(--green)'; el.style.boxShadow = '0 0 0 3px rgba(52,211,153,0.2)'; });
+            document.getElementById('loginHint').textContent = 'Access granted';
+            document.getElementById('loginHint').style.color = 'var(--green)';
+            setTimeout(unlockDashboard, 400);
+          } else {
+            inputs.forEach(el => el.classList.add('error'));
+            document.getElementById('loginHint').className = 'login-hint error';
+            document.getElementById('loginHint').textContent = 'Incorrect code';
+            setTimeout(() => { inputs.forEach(el => { el.value = ''; el.classList.remove('error'); }); inputs[0].focus(); }, 800);
+          }
+        }
+      });
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !inp.value && i > 0) {
+          inputs[i - 1].focus();
+          inputs[i - 1].value = '';
+        }
+      });
+      // Handle paste
+      inp.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const pasted = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 4);
+        pasted.split('').forEach((ch, j) => { if (inputs[j]) inputs[j].value = ch; });
+        if (pasted.length === 4) inputs[3].dispatchEvent(new Event('input'));
+        else if (pasted.length > 0) inputs[Math.min(pasted.length, 3)].focus();
+      });
+    });
+  }
+
+  function unlockDashboard() {
+    const loginScreen = document.getElementById('loginScreen');
+    loginScreen.classList.add('hidden');
+    document.getElementById('mainNav').style.display = '';
+    document.getElementById('mainContainer').style.display = '';
+    setTimeout(() => loginScreen.style.display = 'none', 500);
+    loadData(); // Start loading data after login
+  }
+
+  // ====== PLATFORM SELECTOR ======
+  let selectedPlatform = null;
+
+  function selectPlatform(platform) {
+    selectedPlatform = platform;
+    document.getElementById('filterPlatform').value = platform;
+    document.getElementById('platformSelector').classList.remove('active');
+    document.getElementById('platformSelector').style.display = 'none';
+    document.getElementById('filtersBar').style.display = '';
+    document.getElementById('dashboardContent').style.display = '';
+
+    // Show platform badge
+    const badge = document.getElementById('platformBadge');
+    const colors = { instagram: '#E1306C', tiktok: '#69C9D0', facebook: '#1877F2', all: 'var(--blue)' };
+    const labels = { instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook', all: 'All Platforms' };
+    badge.innerHTML = `<span style="padding:5px 12px; border-radius:20px; font-size:11px; font-weight:600; background:${colors[platform]}20; color:${colors[platform]}; border:1px solid ${colors[platform]}40;">${labels[platform]}</span>`;
+
+    applyFilters();
+  }
+
+  function backToPlatforms() {
+    selectedPlatform = null;
+    document.getElementById('platformSelector').style.display = '';
+    document.getElementById('platformSelector').classList.add('active');
+    document.getElementById('filtersBar').style.display = 'none';
+    document.getElementById('dashboardContent').style.display = 'none';
+    updatePlatformStats(); // Refresh stats on cards
+  }
+
+  function updatePlatformStats() {
+    const source = liveData.length > 0 ? liveData : allData;
+    const platforms = {
+      instagram: { el: 'igStats', ads: source.filter(d => d.publisher_platform === 'instagram') },
+      tiktok: { el: 'ttStats', ads: source.filter(d => d.publisher_platform === 'tiktok') },
+      facebook: { el: 'fbStats', ads: source.filter(d => d.publisher_platform === 'facebook') }
+    };
+    for (const [key, {el, ads}] of Object.entries(platforms)) {
+      const container = document.getElementById(el);
+      if (!container) continue;
+      const live = ads.filter(d => d.ad_status === 'ACTIVE').length;
+      const total = ads.length;
+      const spend = ads.reduce((s,d) => s + (d.spend||0), 0);
+      container.innerHTML = `
+        <div class="platform-card-stat">
+          <div class="platform-card-stat-value">${total}</div>
+          <div class="platform-card-stat-label">Ads</div>
+        </div>
+        <div class="platform-card-stat">
+          <div class="platform-card-stat-value" style="color:var(--green)">${live}</div>
+          <div class="platform-card-stat-label">Live</div>
+        </div>
+        <div class="platform-card-stat">
+          <div class="platform-card-stat-value">&euro;${spend.toFixed(0)}</div>
+          <div class="platform-card-stat-label">Spend</div>
+        </div>
+      `;
+    }
+  }
+
+  const SUPABASE_URL = 'https://kulalbfnfugauwpjukze.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt1bGFsYmZuZnVnYXV3cGp1a3plIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzM5NTQyMSwiZXhwIjoyMDg4OTcxNDIxfQ.QucqQ-nIqrkoRycB6RFjU3joknfSsn1HFJ7Sdk1mQgU';
+
+  async function sbFetch(table, q = '') {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${q}`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.message || `HTTP ${res.status}`); }
+    return res.json();
+  }
+
+  let allData = [];       // Supabase historical data (for sparklines + snapshots)
+  let liveData = [];       // Real-time data from Meta API
+  let currentView = 'latest';
+
+  // Detect the base URL for server endpoints (same origin as the page)
+  const SERVER_BASE = window.location.origin;
+
+  // ====== ABSOLUTE SCORING (CLIENT-SIDE) ======
+  // Each ad scored independently — no comparison to other ads, no cap.
+  // ====== TARGET-BASED SCORING (Variant B) ======
+  // Score = 100 means on target. Each component capped at 2.0, max = 200 pts.
+  const TARGETS = {
+    awareness: { reach: 400000, cpm: 0.07, viewRate: 15 },
+    engagement: { shareRate: 2.0, saveRate: 3.0, commentRate: 1.5, likeRate: 20.0 },
+    traffic: { ctr: 1.0, cpc: 0.007, lpvr: 0.70, frequency: 2.0 }
+  };
+
+  function recalcScores(ads) {
+    for (const d of ads) {
+      if (d.campaign_type === 'awareness') {
+        const reachR = Math.min(TARGETS.awareness.reach > 0 ? (d.reach||0) / TARGETS.awareness.reach : 0, 2.0);
+        const cpmR = Math.min((d.cpm||0) > 0 ? TARGETS.awareness.cpm / d.cpm : 0, 2.0);
+        const viewR = Math.min(TARGETS.awareness.viewRate > 0 ? (d.video_3s_view_rate||0) / TARGETS.awareness.viewRate : 0, 2.0);
+        d._score = Math.round((0.40 * reachR + 0.40 * cpmR + 0.20 * viewR) * 100);
+      } else if (d.campaign_type === 'engagement') {
+        const reach1k = (d.reach||0) > 0 ? d.reach / 1000 : 0.001;
+        const shareRate = (d.shares||0) / reach1k;
+        const saveRate = (d.saves||0) / reach1k;
+        const commentRate = (d.comments||0) / reach1k;
+        const likeRate = (d.likes||0) / reach1k;
+        const raw = 0.40 * Math.min(shareRate / TARGETS.engagement.shareRate, 2.0) +
+                    0.30 * Math.min(saveRate / TARGETS.engagement.saveRate, 2.0) +
+                    0.20 * Math.min(commentRate / TARGETS.engagement.commentRate, 2.0) +
+                    0.10 * Math.min(likeRate / TARGETS.engagement.likeRate, 2.0);
+        d._score = Math.round(raw * 100);
+      } else if (d.campaign_type === 'traffic') {
+        const ctrR = Math.min(TARGETS.traffic.ctr > 0 ? (d.ctr||0) / TARGETS.traffic.ctr : 0, 2.0);
+        const cpc = (d.link_clicks||0) > 0 ? (d.spend||0) / d.link_clicks : 0;
+        const cpcR = Math.min(cpc > 0 ? TARGETS.traffic.cpc / cpc : 0, 2.0);
+        const lpvr = (d.link_clicks||0) > 0 ? (d.landing_page_views||0) / d.link_clicks : 0;
+        const lpvrR = Math.min(TARGETS.traffic.lpvr > 0 ? lpvr / TARGETS.traffic.lpvr : 0, 2.0);
+        const freqR = Math.min((d.frequency||0) > 0 ? TARGETS.traffic.frequency / d.frequency : 0, 2.0);
+        d._score = Math.round((0.40 * ctrR + 0.30 * cpcR + 0.20 * lpvrR + 0.10 * freqR) * 100);
+      } else {
+        d._score = 0;
+      }
+      // Target-based boost thresholds: 100 = on target, max 200
+      d._boost = d._score >= 100 ? 'boost' : d._score >= 70 ? 'monitor' : 'no boost';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => initLogin());
+
+  // Fetch with timeout + retry (handles Render cold starts)
+  async function fetchWithRetry(url, opts = {}, retries = 2, timeoutMs = 90000) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const res = await fetch(url, { ...opts, signal: controller.signal });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      } catch (err) {
+        if (attempt < retries) {
+          console.warn(`Fetch attempt ${attempt + 1} failed for ${url}: ${err.message}, retrying...`);
+          await new Promise(r => setTimeout(r, 2000));
+        } else throw err;
+      }
+    }
+  }
+
+  async function loadData() {
+    // Show loading state on platform selector subtitle
+    const subEl = document.querySelector('.platform-selector-sub');
+    if (subEl) subEl.innerHTML = '<div class="spinner" style="display:inline-block;width:14px;height:14px;margin-right:8px;vertical-align:middle;"></div> Loading ad data...';
+    const el = document.getElementById('dashboardContent');
+    try {
+      // Step 1: Wake up the server with a lightweight health check (handles Render cold start)
+      try {
+        await fetchWithRetry(`${SERVER_BASE}/health`, {}, 1, 60000);
+      } catch (e) { /* server might be slow but continue */ }
+
+      el.innerHTML = '<div class="loading"><div class="spinner"></div> Loading ad data from Meta &amp; TikTok...</div>';
+
+      // Step 2: Fetch live data and historical data in parallel
+      const [liveRes, historicalData] = await Promise.all([
+        fetchWithRetry(`${SERVER_BASE}/live`, {}, 2, 120000),
+        sbFetch('ad_snapshots', 'select=*&order=captured_at.desc')
+      ]);
+
+      liveData = (liveRes.data || [])
+        .filter(d => d.publisher_platform && d.publisher_platform !== 'unknown');
+      allData = historicalData
+        .filter(d => d.publisher_platform && d.publisher_platform !== 'unknown');
+
+      populateFilters();
+      updatePlatformStats();
+      updateTimestamp();
+      const subEl2 = document.querySelector('.platform-selector-sub');
+      if (subEl2) subEl2.textContent = 'Select a platform to view campaign performance';
+      // Don't auto-apply filters — wait for platform selection
+    } catch (err) {
+      // If live data fails, try showing historical data from Supabase only
+      try {
+        const historicalData = await sbFetch('ad_snapshots', 'select=*&order=captured_at.desc');
+        allData = historicalData.filter(d => d.publisher_platform && d.publisher_platform !== 'unknown');
+        if (allData.length > 0) {
+          // Show the most recent snapshot as "live" data
+          const latestTime = allData[0]?.captured_at;
+          liveData = allData.filter(d => d.captured_at === latestTime);
+          populateFilters();
+          updatePlatformStats();
+          updateTimestamp();
+          return;
+        }
+      } catch (e) { /* supabase also failed */ }
+      el.innerHTML = `<div class="empty"><h3>Failed to load</h3><p>${err.message}</p><p style="font-size:12px;color:var(--text-dim);">The server may be starting up. Please wait 30 seconds and click Refresh.</p></div>`;
+    }
+  }
+
+  function updateTimestamp() {
+    const el = document.getElementById('lastUpdated');
+    if (currentView === 'latest' && liveData.length > 0) {
+      el.textContent = `Live data \u2022 ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+    } else if (allData.length > 0) {
+      const d = new Date(allData[0].captured_at);
+      el.textContent = `Last capture: ${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+    }
+  }
+
+  function populateFilters() {
+    const sel = document.getElementById('filterCampaign');
+    // Combine live + historical campaigns for the dropdown
+    const campaigns = [...new Set([...liveData, ...allData].map(d => d.campaign_name))];
+    sel.innerHTML = '<option value="all">All Campaigns</option>';
+    campaigns.forEach(c => {
+      const o = document.createElement('option');
+      o.value = c;
+      o.textContent = c.length > 55 ? c.substring(0, 55) + '...' : c;
+      sel.appendChild(o);
+    });
+  }
+
+  function setView(v, el) {
+    currentView = v;
+    document.querySelectorAll('#viewPills .pill').forEach(p => p.classList.remove('active'));
+    el.classList.add('active');
+    applyFilters();
+  }
+
+  async function applyFilters() {
+    const platform = document.getElementById('filterPlatform').value;
+    const campaign = document.getElementById('filterCampaign').value;
+    const sort = document.getElementById('filterSort').value;
+
+    // Compare view: use live data for real-time comparison
+    if (currentView === 'compare') {
+      const sourceData = liveData.length > 0 ? liveData : allData;
+      const latestMap = new Map();
+      for (const d of sourceData) {
+        const key = `${d.ad_name}__${d.publisher_platform}`;
+        if (!latestMap.has(key) || new Date(d.captured_at) > new Date(latestMap.get(key).captured_at)) {
+          latestMap.set(key, d);
+        }
+      }
+      let all = [...latestMap.values()];
+      if (campaign !== 'all') all = all.filter(d => d.campaign_name === campaign);
+
+      renderCompare(all);
+      return;
+    }
+
+    let filtered;
+
+    if (currentView === 'latest') {
+      // Use live data from Meta API (real-time)
+      filtered = [...liveData];
+      updateTimestamp();
+    } else {
+      // Time window: fetch snapshot from Supabase via server endpoint
+      const hours = currentView;
+      const content = document.getElementById('dashboardContent');
+      content.innerHTML = `<div class="loading"><div class="spinner"></div> Loading ${hours}h snapshot...</div>`;
+
+      try {
+        const res = await fetch(`${SERVER_BASE}/snapshot/${hours}`);
+        const json = await res.json();
+        filtered = (json.data || []).filter(d => d.publisher_platform && d.publisher_platform !== 'unknown');
+
+        // Update timestamp to show snapshot time
+        const el = document.getElementById('lastUpdated');
+        if (json.actual_time) {
+          const d = new Date(json.actual_time);
+          el.textContent = `Snapshot: ${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+        }
+      } catch (err) {
+        content.innerHTML = `<div class="empty"><h3>Failed to load snapshot</h3><p>${err.message}</p></div>`;
+        return;
+      }
+    }
+
+    // Apply platform + campaign filters
+    filtered = filtered.filter(d => {
+      if (platform !== 'all' && d.publisher_platform !== platform) return false;
+      if (campaign !== 'all' && d.campaign_name !== campaign) return false;
+      return true;
+    });
+
+    // Recalculate scores client-side (0-100 normalized)
+    recalcScores(filtered);
+
+    const awareness = filtered.filter(d => d.campaign_type === 'awareness');
+    const engagement = filtered.filter(d => d.campaign_type === 'engagement');
+    const traffic = filtered.filter(d => d.campaign_type === 'traffic');
+
+    sortAds(awareness, sort);
+    sortAds(engagement, sort);
+    sortAds(traffic, sort);
+
+    render(awareness, engagement, traffic);
+  }
+
+  function sortAds(arr, sort) {
+    arr.sort((a, b) => {
+      // Budget-spent ads always go last, NEW ads go first
+      const aPriority = a.ad_status === 'COMPLETED' ? 3 : a.ad_status === 'PAUSED' ? 2 : a.ad_status === 'NEW' ? 0 : 1;
+      const bPriority = b.ad_status === 'COMPLETED' ? 3 : b.ad_status === 'PAUSED' ? 2 : b.ad_status === 'NEW' ? 0 : 1;
+      if (aPriority !== bPriority) return aPriority - bPriority;
+
+      const sa = a._score ?? -1;
+      const sb = b._score ?? -1;
+      switch(sort) {
+        case 'score_asc': return sa - sb;
+        case 'reach_desc': return (b.reach||0) - (a.reach||0);
+        case 'impressions_desc': return (b.impressions||0) - (a.impressions||0);
+        default: return sb - sa;
+      }
+    });
+  }
+
+  // ====== RENDER ======
+  function render(awareness, engagement, traffic) {
+    const c = document.getElementById('dashboardContent');
+    let h = '';
+
+    h += buildSection({
+      type: 'awareness', title: 'Awareness Campaigns', sub: 'Entertaining content',
+      iconClass: 'icon-awareness', icon: '\u25C9',
+      formula: [['Reach','40%'],['CPM','40% inv'],['View Rate','20%']],
+      chipClass: 'chip-blue', ads: awareness, scoreKey: 'awareness_score',
+      metrics: d => [
+        ['Reach', fmt(d.reach)], ['CPM', '\u20ac'+(d.cpm||0).toFixed(3)],
+        ['Video Views', fmt(d.video_3s_views)], ['Video View Rate', (d.video_3s_view_rate||0).toFixed(1)+'%'],
+        ['Spend', '\u20ac'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
+      ],
+      summaryExtras: ads => {
+        const r = ads.reduce((s,d)=>s+(d.reach||0),0);
+        const cpm = ads.reduce((s,d)=>s+(d.cpm||0),0)/ads.length;
+        const spend = ads.reduce((s,d)=>s+(d.spend||0),0);
+        return [['Total Reach', fmt(r)], ['Avg CPM', '\u20ac'+cpm.toFixed(3)], ['Total Spend', '\u20ac'+spend.toFixed(2)]];
+      }
+    });
+
+    h += buildSection({
+      type: 'engagement', title: 'Engagement Campaigns', sub: 'Educational content',
+      iconClass: 'icon-engagement', icon: '\u2665',
+      formula: [['Share Rate','40%'],['Save Rate','30%'],['Comment Rate','20%'],['Like Rate','10%']],
+      chipClass: 'chip-purple', ads: engagement, scoreKey: 'engagement_score',
+      metrics: d => [
+        ['Shares', fmt(d.shares)], ['Saves', fmt(d.saves)],
+        ['Comments', fmt(d.comments)], ['Likes', fmt(d.likes)],
+        ['Spend', '\u20ac'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
+      ],
+      summaryExtras: ads => {
+        const sh = ads.reduce((s,d)=>s+(d.shares||0),0);
+        const sv = ads.reduce((s,d)=>s+(d.saves||0),0);
+        const spend = ads.reduce((s,d)=>s+(d.spend||0),0);
+        return [['Total Shares', fmt(sh)], ['Total Saves', fmt(sv)], ['Total Spend', '\u20ac'+spend.toFixed(2)]];
+      }
+    });
+
+    h += buildSection({
+      type: 'traffic', title: 'Traffic Campaigns', sub: 'Link click driven',
+      iconClass: 'icon-traffic', icon: '\u2197',
+      formula: [['CTR','40%'],['CPC','30% inv'],['LPVR','20%'],['Frequency','10% inv']],
+      chipClass: 'chip-green', ads: traffic, scoreKey: 'traffic_score',
+      metrics: d => {
+        const cpc = (d.link_clicks||0) > 0 ? d.spend / d.link_clicks : (d.cost_per_click||0);
+        const lpvr = (d.link_clicks||0) > 0 ? ((d.landing_page_views||0) / d.link_clicks * 100) : 0;
+        return [
+          ['Link Clicks', fmt(d.link_clicks)], ['CTR', (d.ctr||0).toFixed(2)+'%'],
+          ['CPC', '\u20ac'+(cpc).toFixed(3)], ['LPVR', lpvr.toFixed(1)+'%'],
+          ['Spend', '\u20ac'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
+        ];
+      },
+      summaryExtras: ads => {
+        const clicks = ads.reduce((s,d)=>s+(d.link_clicks||0),0);
+        const avgCtr = ads.reduce((s,d)=>s+(d.ctr||0),0)/ads.length;
+        const spend = ads.reduce((s,d)=>s+(d.spend||0),0);
+        return [['Total Clicks', fmt(clicks)], ['Avg CTR', avgCtr.toFixed(2)+'%'], ['Total Spend', '\u20ac'+spend.toFixed(2)]];
+      }
+    });
+
+    c.innerHTML = h;
+  }
+
+  function buildSection({type, title, sub, iconClass, icon, formula, chipClass, ads, scoreKey, metrics, summaryExtras}) {
+    let h = `<div class="section">`;
+
+    // Count live vs completed vs new ads
+    const liveCount = ads.filter(d => d.ad_status === 'ACTIVE').length;
+    const budgetSpentCount = ads.filter(d => d.ad_status === 'COMPLETED').length;
+    const pausedCount = ads.filter(d => d.ad_status === 'PAUSED').length;
+    const newCount = ads.filter(d => d.ad_status === 'NEW').length;
+
+    let countParts = [];
+    if (liveCount > 0) countParts.push(liveCount + ' live');
+    if (newCount > 0) countParts.push(newCount + ' new');
+    if (pausedCount > 0) countParts.push(pausedCount + ' paused');
+    if (budgetSpentCount > 0) countParts.push(budgetSpentCount + ' completed');
+
+    h += `<div class="section-header">
+      <div class="section-title">
+        <div class="section-icon ${iconClass}">${icon}</div>
+        <h2>${title}</h2>
+        <span class="section-count">${ads.length} ad${ads.length!==1?'s':''}${countParts.length ? ' \u2022 ' + countParts.join(' \u2022 ') : ''}</span>
+      </div>
+      <span style="font-size:12px; color:var(--text-3)">${sub}</span>
+    </div>`;
+
+    // Formula
+    h += `<div class="formula"><strong>Score =</strong> `;
+    formula.forEach(([label, weight], i) => {
+      if (i > 0) h += ` <span style="color:var(--text-3)">+</span> `;
+      h += `<span class="chip ${chipClass}">${label} ${weight}</span>`;
+    });
+    h += `<span style="margin-left:auto; font-size:10px; color:var(--text-3)">100 = on target \u2022 max 200</span>`;
+    h += `<span class="score-info-btn" onclick="event.stopPropagation(); showScoreInfo('${type}')" title="How is this score calculated?">?</span>`;
+    h += `</div>`;
+
+    if (ads.length === 0) {
+      h += `<div class="empty"><h3>No ${type} ads found</h3><p>No data for current filters.</p></div></div>`;
+      return h;
+    }
+
+    // Summary
+    const avgScore = ads.length > 0 ? ads.reduce((s,d) => s + (d._score||0), 0) / ads.length : 0;
+    const boost = ads.filter(d => d._boost === 'boost').length;
+    const monitor = ads.filter(d => d._boost === 'monitor').length;
+    const noBoost = ads.filter(d => d._boost === 'no boost').length;
+    const extras = summaryExtras(ads);
+
+    h += `<div class="summary">`;
+    h += `<div class="summary-card"><div class="summary-label">Avg Score</div><div class="summary-value" style="color:${sColor(avgScore)}">${avgScore.toFixed(0)}<span style="font-size:12px;color:var(--text-3)"> pts</span></div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">Boost</div><div class="summary-value" style="color:var(--green)">${boost}</div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">Monitor</div><div class="summary-value" style="color:var(--orange)">${monitor}</div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">No Boost</div><div class="summary-value" style="color:var(--red)">${noBoost}</div></div>`;
+    extras.forEach(([l,v]) => {
+      h += `<div class="summary-card"><div class="summary-label">${l}</div><div class="summary-value">${v}</div></div>`;
+    });
+    h += `</div>`;
+
+    // Ad cards
+    const topScore = ads.length > 0 ? Math.max(...ads.map(d => d._score || 0)) : 0;
+
+    h += `<div class="ad-grid">`;
+    ads.forEach((d, i) => {
+      const score = d._score || 0;
+      const isWinner = score === topScore && ads.length > 1 && score > 0;
+      const m = metrics(d);
+      const platClass = 'plat-' + (d.publisher_platform || 'unknown');
+      const platLabel = cap(d.publisher_platform || 'unknown');
+      const hasThumb = d.thumbnail_url && d.thumbnail_url.startsWith('http');
+
+      // Determine ad status — uses Meta's effective_status directly
+      const adStatus = d.ad_status || 'UNKNOWN';
+      const isLive = adStatus === 'ACTIVE';
+      const isPaused = adStatus === 'PAUSED';
+      const isCompleted = adStatus === 'COMPLETED';
+      const isPending = adStatus === 'PENDING';
+      const isNew = adStatus === 'NEW';
+      const statusClass = isCompleted ? 'status-budget-spent' : isNew ? 'status-new' : isLive ? 'status-live' : isPaused ? 'status-paused' : isPending ? 'status-new' : 'status-ended';
+      const statusLabel = isCompleted ? 'Completed' : isNew ? 'New' : isLive ? 'Live' : isPaused ? 'Paused' : isPending ? 'Pending' : adStatus === 'ISSUES' ? 'Issues' : 'Ended';
+
+      const cardExtraClass = (isCompleted || isPaused || adStatus === 'ISSUES') ? 'budget-spent' : isNew ? 'ad-new' : isLive ? 'ad-live' : '';
+      h += `<div class="ad-card ${isWinner ? 'winner' : ''} ${cardExtraClass}" style="cursor:pointer;" onclick="openHistory('${esc(d.ad_id)}', '${esc(d.publisher_platform)}', '${esc(d.ad_name)}')">`;
+      if (isWinner && !isCompleted) h += `<div class="winner-crown">\u2605 Top Performer</div>`;
+
+      // Visual
+
+      h += `<div class="ad-visual">`;
+      if (hasThumb) {
+        h += `<img src="${esc(d.thumbnail_url)}" alt="Ad" loading="lazy">`;
+      } else {
+        h += `<div class="ad-visual-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><span>Ad creative</span></div>`;
+      }
+      h += `<span class="badge-platform ${platClass}">${platLabel}</span>`;
+      h += `<span class="badge-status ${statusClass}">${statusLabel}</span>`;
+      h += `<span class="badge-score" style="color:${sColor(score)}"><span>${score}</span><span class="score-label">pts</span></span>`;
+      h += `</div>`;
+
+      // Body
+      h += `<div class="ad-body">`;
+      h += `<div class="ad-name" title="${esc(d.ad_name)}">${esc(d.ad_name)}</div>`;
+      // Show ad age if created_time is available
+      if (d.ad_created_time) {
+        const ageMs = Date.now() - new Date(d.ad_created_time).getTime();
+        const ageH = Math.floor(ageMs / 3600000);
+        const ageLabel = ageH < 24 ? ageH + 'h old' : Math.floor(ageH / 24) + 'd old';
+        h += `<div style="font-size:10px;color:var(--text-dim);margin-top:2px;">Launched ${new Date(d.ad_created_time).toLocaleDateString()} · ${ageLabel}</div>`;
+      }
+
+      h += `<div class="ad-metrics">`;
+      m.forEach(([label, value]) => {
+        h += `<div class="ad-metric"><div class="ad-metric-label">${label}</div><div class="ad-metric-value">${value}</div></div>`;
+      });
+      h += `</div>`;
+
+      // Footer
+      h += `<div class="ad-footer">`;
+      h += `<span class="bench-tbd">${score} pts</span>`;
+      h += `</div>`;
+
+      h += `</div></div>`; // close ad-body, ad-card
+    });
+    h += `</div>`;
+
+    h += `</div>`; // close section
+    return h;
+  }
+
+  // ====== COMPARE VIEW ======
+  function renderCompare(ads) {
+    const c = document.getElementById('dashboardContent');
+
+    // Group by ad_name
+    const groups = new Map();
+    for (const d of ads) {
+      if (!groups.has(d.ad_name)) groups.set(d.ad_name, []);
+      groups.get(d.ad_name).push(d);
+    }
+
+    // Only show ads that appear on 2+ platforms
+    const multiPlatform = [...groups.entries()].filter(([, items]) => {
+      const platforms = new Set(items.map(d => d.publisher_platform));
+      return platforms.size >= 2;
+    });
+
+    if (multiPlatform.length === 0) {
+      c.innerHTML = `<div class="section">
+        <div class="section-header">
+          <div class="section-title">
+            <div class="section-icon icon-awareness">\u2194</div>
+            <h2>Platform Comparison</h2>
+          </div>
+        </div>
+        <div class="empty"><h3>No cross-platform data</h3><p>Comparison requires the same ad running on 2+ platforms.</p></div>
+      </div>`;
+      return;
+    }
+
+    let h = `<div class="section">
+      <div class="section-header">
+        <div class="section-title">
+          <div class="section-icon icon-awareness">\u2194</div>
+          <h2>Platform Comparison</h2>
+          <span class="section-count">${multiPlatform.length} ad${multiPlatform.length!==1?'s':''}</span>
+        </div>
+        <span style="font-size:12px; color:var(--text-3)">Same ad across platforms</span>
+      </div>`;
+
+    for (const [adName, items] of multiPlatform) {
+      const isAwareness = items[0].campaign_type === 'awareness';
+      const isTraffic = items[0].campaign_type === 'traffic';
+      const thumb = items.find(d => d.thumbnail_url)?.thumbnail_url;
+
+      h += `<div class="compare-group">`;
+
+      // Header with thumbnail and ad name
+      h += `<div class="compare-header">`;
+      if (thumb) {
+        h += `<img class="compare-thumb" src="${esc(thumb)}" alt="">`;
+      } else {
+        h += `<div class="compare-thumb-placeholder">\u25A3</div>`;
+      }
+      h += `<div class="compare-ad-info">
+        <div class="compare-ad-name" title="${esc(adName)}">${esc(adName)}</div>
+        <div class="compare-ad-type">${isAwareness ? 'Awareness' : isTraffic ? 'Traffic' : 'Engagement'} campaign</div>
+      </div></div>`;
+
+      // Table
+      h += `<table class="compare-table">`;
+
+      if (isAwareness) {
+        h += `<tr><th>Platform</th><th>Reach</th><th>CPM</th><th>Video View Rate</th><th>Impressions</th><th>Score</th></tr>`;
+        const bestReach = Math.max(...items.map(d => d.reach || 0));
+        const bestCpm = Math.min(...items.filter(d => d.cpm > 0).map(d => d.cpm));
+        const bestVr = Math.max(...items.map(d => d.video_3s_view_rate || 0));
+
+        for (const d of items.sort((a,b) => (b.reach||0) - (a.reach||0))) {
+          const platDot = 'dot-' + (d.publisher_platform || 'unknown');
+          h += `<tr>`;
+          h += `<td><div class="compare-plat-cell"><span class="compare-plat-dot ${platDot}"></span>${cap(d.publisher_platform || 'unknown')}</div></td>`;
+          h += `<td>${fmt(d.reach)}${d.reach === bestReach && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>\u20ac${(d.cpm||0).toFixed(3)}${d.cpm === bestCpm && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>${(d.video_3s_view_rate||0).toFixed(1)}%${d.video_3s_view_rate === bestVr && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>${fmt(d.impressions)}</td>`;
+          h += `<td style="color:${d.awareness_score ? sColor(d.awareness_score) : 'var(--text-3)'}">${d.awareness_score ?? 'N/A'}</td>`;
+          h += `</tr>`;
+        }
+      } else if (isTraffic) {
+        h += `<tr><th>Platform</th><th>Link Clicks</th><th>CTR</th><th>CPM</th><th>Reach</th><th>Score</th></tr>`;
+        const bestClicks = Math.max(...items.map(d => d.link_clicks || 0));
+        const bestCtr = Math.max(...items.map(d => d.ctr || 0));
+        const bestCpm = Math.min(...items.filter(d => d.cpm > 0).map(d => d.cpm));
+
+        for (const d of items.sort((a,b) => (b.link_clicks||0) - (a.link_clicks||0))) {
+          const platDot = 'dot-' + (d.publisher_platform || 'unknown');
+          h += `<tr>`;
+          h += `<td><div class="compare-plat-cell"><span class="compare-plat-dot ${platDot}"></span>${cap(d.publisher_platform || 'unknown')}</div></td>`;
+          h += `<td>${fmt(d.link_clicks)}${d.link_clicks === bestClicks && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>${(d.ctr||0).toFixed(2)}%${d.ctr === bestCtr && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>\u20ac${(d.cpm||0).toFixed(3)}${d.cpm === bestCpm && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>${fmt(d.reach)}</td>`;
+          h += `<td style="color:${d.traffic_score ? sColor(d.traffic_score) : 'var(--text-3)'}">${d.traffic_score ?? 'N/A'}</td>`;
+          h += `</tr>`;
+        }
+      } else {
+        h += `<tr><th>Platform</th><th>Shares</th><th>Saves</th><th>Comments</th><th>Likes</th><th>Score</th></tr>`;
+        const bestShares = Math.max(...items.map(d => d.shares || 0));
+        const bestSaves = Math.max(...items.map(d => d.saves || 0));
+
+        for (const d of items.sort((a,b) => ((b.shares||0)+(b.saves||0)) - ((a.shares||0)+(a.saves||0)))) {
+          const platDot = 'dot-' + (d.publisher_platform || 'unknown');
+          h += `<tr>`;
+          h += `<td><div class="compare-plat-cell"><span class="compare-plat-dot ${platDot}"></span>${cap(d.publisher_platform || 'unknown')}</div></td>`;
+          h += `<td>${fmt(d.shares)}${d.shares === bestShares && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>${fmt(d.saves)}${d.saves === bestSaves && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>${fmt(d.comments)}</td>`;
+          h += `<td>${fmt(d.likes)}</td>`;
+          h += `<td style="color:${d.engagement_score ? sColor(d.engagement_score) : 'var(--text-3)'}">${d.engagement_score ?? 'N/A'}</td>`;
+          h += `</tr>`;
+        }
+      }
+
+      h += `</table>`;
+
+      // Show AI insight from the best-performing platform
+      const bestItem = items.reduce((a, b) => {
+        const sa = a.awareness_score ?? a.engagement_score ?? a.traffic_score ?? 0;
+        const sb = b.awareness_score ?? b.engagement_score ?? b.traffic_score ?? 0;
+        return sb > sa ? b : a;
+      });
+      if (bestItem.ai_insight) {
+        h += `<div class="compare-insight">\u2728 ${esc(bestItem.ai_insight)}</div>`;
+      }
+
+      h += `</div>`; // close compare-group
+    }
+
+    // Also show single-platform ads as a note
+    const singlePlatform = [...groups.entries()].filter(([, items]) => {
+      const platforms = new Set(items.map(d => d.publisher_platform));
+      return platforms.size < 2;
+    });
+    if (singlePlatform.length > 0) {
+      h += `<div class="compare-empty" style="margin-top:12px; padding:14px; background:var(--bg-1); border:1px solid var(--border); border-radius:var(--radius-xs);">
+        <span style="color:var(--text-3)">${singlePlatform.length} ad${singlePlatform.length!==1?'s':''} running on a single platform only — not shown in comparison</span>
+      </div>`;
+    }
+
+    h += `</div>`; // close section
+
+    // ====== CAMPAIGN TYPE COMPARISON ======
+    const awarenessAds = ads.filter(d => d.campaign_type === 'awareness');
+    const engagementAds = ads.filter(d => d.campaign_type === 'engagement');
+    const trafficAds = ads.filter(d => d.campaign_type === 'traffic');
+
+    // Build campaign type cards dynamically
+    const typeCards = [];
+    if (awarenessAds.length > 0) {
+      const a = awarenessAds;
+      typeCards.push({
+        label: 'Awareness', icon: '\u{1F4E3}', iconClass: 'icon-awareness', color: 'var(--blue)',
+        count: a.length,
+        boostReady: a.filter(d => (d.awareness_score || 0) >= 70).length,
+        avgScore: Math.round(a.reduce((s,d) => s+(d.awareness_score||0),0)/a.length),
+        totalImpressions: a.reduce((s,d) => s+(d.impressions||0),0),
+        stats: [
+          ['Total Reach', fmt(a.reduce((s,d)=>s+(d.reach||0),0)), true],
+          ['Avg CPM', '\u20ac'+(a.reduce((s,d)=>s+(d.cpm||0),0)/a.length).toFixed(3), false],
+          ['Avg View Rate', (a.reduce((s,d)=>s+(d.video_3s_view_rate||0),0)/a.length).toFixed(1)+'%', false]
+        ]
+      });
+    }
+    if (engagementAds.length > 0) {
+      const e = engagementAds;
+      typeCards.push({
+        label: 'Engagement', icon: '\u{1F4AC}', iconClass: 'icon-engagement', color: 'var(--purple)',
+        count: e.length,
+        boostReady: e.filter(d => (d.engagement_score || 0) >= 70).length,
+        avgScore: Math.round(e.reduce((s,d) => s+(d.engagement_score||0),0)/e.length),
+        totalImpressions: e.reduce((s,d) => s+(d.impressions||0),0),
+        stats: [
+          ['Shares+Saves', fmt(e.reduce((s,d)=>s+(d.shares||0)+(d.saves||0),0)), true],
+          ['Comments', fmt(e.reduce((s,d)=>s+(d.comments||0),0)), false],
+          ['Likes', fmt(e.reduce((s,d)=>s+(d.likes||0),0)), false]
+        ]
+      });
+    }
+    if (trafficAds.length > 0) {
+      const t = trafficAds;
+      typeCards.push({
+        label: 'Traffic', icon: '\u{1F517}', iconClass: 'icon-traffic', color: 'var(--green)',
+        count: t.length,
+        boostReady: t.filter(d => (d.traffic_score || 0) >= 70).length,
+        avgScore: Math.round(t.reduce((s,d) => s+(d.traffic_score||0),0)/t.length),
+        totalImpressions: t.reduce((s,d) => s+(d.impressions||0),0),
+        stats: [
+          ['Total Clicks', fmt(t.reduce((s,d)=>s+(d.link_clicks||0),0)), true],
+          ['Avg CTR', (t.reduce((s,d)=>s+(d.ctr||0),0)/t.length).toFixed(2)+'%', false],
+          ['Avg CPM', '\u20ac'+(t.reduce((s,d)=>s+(d.cpm||0),0)/t.length).toFixed(3), false]
+        ]
+      });
+    }
+
+    if (typeCards.length >= 2) {
+      const cols = typeCards.length === 3 ? '1fr 1fr 1fr' : '1fr 1fr';
+      h += `<div class="section" style="margin-top:24px">
+        <div class="section-header">
+          <div class="section-title">
+            <div class="section-icon" style="background:var(--purple-10); color:var(--purple)">\u26A1</div>
+            <h2>Campaign Type Comparison</h2>
+          </div>
+          <span style="font-size:12px; color:var(--text-3)">Performance across campaign objectives</span>
+        </div>
+        <div class="compare-group">
+          <div style="display:grid; grid-template-columns:${cols}; gap:16px;">`;
+
+      for (const tc of typeCards) {
+        h += `<div style="background:var(--bg-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:18px;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
+            <div class="section-icon ${tc.iconClass}" style="width:28px; height:28px; font-size:13px;">${tc.icon}</div>
+            <div>
+              <div style="font-weight:600; color:var(--text-1);">${tc.label}</div>
+              <div style="font-size:11px; color:var(--text-3)">${tc.count} ad${tc.count!==1?'s':''} \u2022 ${tc.boostReady} boost-ready</div>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div class="compare-stat">
+              <div style="font-size:11px; color:var(--text-3)">Avg Score</div>
+              <div style="font-size:20px; font-weight:700; color:${sColor(tc.avgScore)}">${tc.avgScore}</div>
+            </div>`;
+        for (const [label, value, big] of tc.stats) {
+          h += `<div class="compare-stat">
+              <div style="font-size:11px; color:var(--text-3)">${label}</div>
+              <div style="font-size:${big?'20':'16'}px; font-weight:${big?'700':'600'}; color:var(--text-1)">${value}</div>
+            </div>`;
+        }
+        h += `</div></div>`;
+      }
+
+      h += `</div>
+          <!-- Impressions comparison bar -->
+          <div style="margin-top:14px; background:var(--bg-1); border:1px solid var(--border); border-radius:var(--radius-xs); padding:14px;">
+            <div style="font-size:12px; font-weight:600; color:var(--text-2); margin-bottom:10px;">Total Impressions</div>
+            <div style="display:flex; justify-content:center; align-items:center; gap:16px; flex-wrap:wrap;">`;
+      for (const tc of typeCards) {
+        h += `<div style="text-align:center;">
+                <div style="font-size:18px; font-weight:700; color:${tc.color}">${fmt(tc.totalImpressions)}</div>
+                <div style="font-size:11px; color:var(--text-3)">${tc.label}</div>
+              </div>`;
+      }
+      h += `</div></div></div></div>`;
+    } else if (typeCards.length === 1) {
+      const activeTypes = typeCards.map(t => t.label).join(', ');
+      h += `<div class="section" style="margin-top:24px">
+        <div class="section-header">
+          <div class="section-title">
+            <div class="section-icon" style="background:var(--purple-10); color:var(--purple)">\u26A1</div>
+            <h2>Campaign Type Comparison</h2>
+          </div>
+        </div>
+        <div class="empty"><h3>Only ${activeTypes} ads available</h3><p>Campaign comparison will appear once 2+ campaign types are running.</p></div>
+      </div>`;
+    }
+
+    c.innerHTML = h;
+  }
+
+  // ====== SPARKLINE ======
+  // Collects all snapshots for a given ad+platform across time, sorted chronologically
+  // Uses historical Supabase data + current live data point for the trend line
+  function getSparklineData(ad) {
+    const historical = allData
+      .filter(d => d.ad_name === ad.ad_name && d.publisher_platform === ad.publisher_platform)
+      .sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at));
+
+    // If we're on live view, append the current live data point so sparkline shows up-to-now
+    if (currentView === 'latest' && liveData.length > 0) {
+      const livePoint = liveData.find(d => d.ad_name === ad.ad_name && d.publisher_platform === ad.publisher_platform);
+      if (livePoint) {
+        // Avoid duplicate if the last historical point is very recent
+        const lastHistorical = historical[historical.length - 1];
+        if (!lastHistorical || Math.abs(new Date(lastHistorical.captured_at) - new Date(livePoint.captured_at)) > 60000) {
+          historical.push(livePoint);
+        }
+      }
+    }
+    return historical;
+  }
+
+  // Picks the metric to chart based on campaign type
+  function sparklineMetric(d) {
+    if (d.campaign_type === 'awareness') return d.reach || 0;
+    if (d.campaign_type === 'traffic') return d.link_clicks || 0;
+    return (d.shares || 0) + (d.saves || 0) + (d.comments || 0) + (d.likes || 0);
+  }
+
+  function sparklineLabel(d) {
+    return 'Momentum Tracker';
+  }
+
+  // Builds an inline SVG sparkline from an array of numeric values
+  function buildSparklineSVG(values, color) {
+    const w = 260, h = 32, pad = 2;
+    if (values.length < 2) return '';
+    const min = Math.min(...values), max = Math.max(...values);
+    const range = max - min || 1;
+    const points = values.map((v, i) => {
+      const x = pad + (i / (values.length - 1)) * (w - pad * 2);
+      const y = pad + (1 - (v - min) / range) * (h - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    // Gradient fill under the line
+    const fillPoints = [
+      `${pad},${h}`,
+      ...points,
+      `${(w - pad).toFixed(1)},${h}`
+    ].join(' ');
+    return `<svg class="sparkline-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <defs><linearGradient id="sg_${color.replace('#','')}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.25"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+      </linearGradient></defs>
+      <polygon points="${fillPoints}" fill="url(#sg_${color.replace('#','')})" />
+      <polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${points[points.length-1].split(',')[0]}" cy="${points[points.length-1].split(',')[1]}" r="2.5" fill="${color}"/>
+    </svg>`;
+  }
+
+  // Builds the full sparkline card section
+  function buildSparkline(ad) {
+    const history = getSparklineData(ad);
+    const values = history.map(d => sparklineMetric(d));
+    const label = sparklineLabel(ad);
+    const color = ad.campaign_type === 'awareness' ? '#53B7E8' : ad.campaign_type === 'traffic' ? '#34D399' : '#A855F7';
+
+    let h = `<div class="sparkline-wrap">`;
+    h += `<div class="sparkline-header">`;
+    h += `<span class="sparkline-title">${label}</span>`;
+
+    if (values.length >= 2) {
+      const first = values[0], last = values[values.length - 1];
+      const pctChange = first > 0 ? ((last - first) / first * 100) : 0;
+      const arrow = pctChange > 0 ? '\u2191' : pctChange < 0 ? '\u2193' : '\u2192';
+      const cls = pctChange > 0 ? 'up' : pctChange < 0 ? 'down' : 'flat';
+      h += `<span class="sparkline-trend ${cls}">${arrow} ${Math.abs(pctChange).toFixed(0)}%</span>`;
+    }
+
+    h += `</div>`;
+
+    if (values.length >= 2) {
+      h += buildSparklineSVG(values, color);
+    } else {
+      h += `<div class="sparkline-empty">Trend available after 2+ captures</div>`;
+    }
+
+    h += `</div>`;
+    return h;
+  }
+
+  // ====== TOGGLE COMPLETED ADS ======
+  let hideCompleted = false;
+  function toggleCompleted(btn) {
+    hideCompleted = !hideCompleted;
+    btn.classList.toggle('active', hideCompleted);
+    btn.style.opacity = hideCompleted ? '1' : '0.6';
+    document.querySelectorAll('.ad-grid').forEach(g => {
+      g.classList.toggle('hide-completed', hideCompleted);
+    });
+  }
+
+  // ====== HELPERS ======
+  function fmt(n) {
+    if (n == null) return '0';
+    if (n >= 1e6) return (n/1e6).toFixed(1)+'M';
+    if (n >= 1e3) return (n/1e3).toFixed(1)+'K';
+    return n.toLocaleString();
+  }
+  function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
+  function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+  function clientHourLabel(hours) {
+    const ord = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth","Eleventh","Twelfth"];
+    if (!hours || hours <= 0) return "Launch";
+    if (hours <= 12) return ord[Math.max(0, Math.ceil(hours) - 1)] + " hour";
+    return (Math.ceil(hours / 24) * 24) + " hours";
+  }
+  function sColor(s) {
+    if (s >= 100) return 'var(--green)';
+    if (s >= 70) return 'var(--orange)';
+    return 'var(--red)';
+  }
+
+  // ====== SCORE INFO POPOVER ======
+  const SCORE_EXPLANATIONS = {
+    awareness: {
+      title: 'Awareness Score',
+      subtitle: 'How well is your ad getting seen by people?',
+      formula: `We compare your ad's numbers to our targets and give each one a weight:
+
+<strong>Reach (40%)</strong> — How many people saw your ad?
+Target: ${(TARGETS.awareness.reach/1000).toFixed(0)}K people
+
+<strong>Cost per 1K views (40%)</strong> — How cheaply are you reaching people?
+Target: &euro;${TARGETS.awareness.cpm} per 1,000 views
+
+<strong>Video view rate (20%)</strong> — What % of people watched the video?
+Target: ${TARGETS.awareness.viewRate}%
+
+A score of <strong>100</strong> means you're hitting all targets perfectly.
+Higher = better. You can score up to 200 if you're smashing every target.`,
+      targets: ``
+    },
+    engagement: {
+      title: 'Engagement Score',
+      subtitle: 'How much are people interacting with your ad?',
+      formula: `We measure how many shares, saves, comments and likes your ad gets per 1,000 people reached:
+
+<strong>Shares (40%)</strong> — The strongest signal. People sharing your ad with others.
+Target: ${TARGETS.engagement.shareRate} shares per 1K reach
+
+<strong>Saves (30%)</strong> — People saving your ad to come back to later.
+Target: ${TARGETS.engagement.saveRate} saves per 1K reach
+
+<strong>Comments (20%)</strong> — People taking the time to comment.
+Target: ${TARGETS.engagement.commentRate} comments per 1K reach
+
+<strong>Likes (10%)</strong> — The most basic interaction.
+Target: ${TARGETS.engagement.likeRate} likes per 1K reach
+
+A score of <strong>100</strong> means you're hitting all targets perfectly.`,
+      targets: ``
+    },
+    traffic: {
+      title: 'Traffic Score',
+      subtitle: 'How well is your ad driving people to the website?',
+      formula: `We measure how effectively your ad gets people to click through and visit:
+
+<strong>Click-through rate (40%)</strong> — What % of people click your ad?
+Target: ${TARGETS.traffic.ctr}%
+
+<strong>Cost per click (30%)</strong> — How much does each click cost?
+Target: &euro;${TARGETS.traffic.cpc} per click
+
+<strong>Landing page view rate (20%)</strong> — Of those who click, how many actually load the page?
+Target: ${(TARGETS.traffic.lpvr*100).toFixed(0)}%
+
+<strong>Frequency (10%)</strong> — Are you showing the ad too many times to the same people?
+Target: max ${TARGETS.traffic.frequency} times per person
+
+A score of <strong>100</strong> means you're hitting all targets perfectly.`,
+      targets: ``
+    }
+  };
+
+  function showScoreInfo(type) {
+    const info = SCORE_EXPLANATIONS[type];
+    if (!info) return;
+    const overlay = document.getElementById('scoreInfoOverlay');
+    overlay.innerHTML = `<div class="score-info-modal">
+      <button class="score-info-close" onclick="closeScoreInfo()">&times;</button>
+      <h3>${info.title}</h3>
+      <div class="score-info-sub">${info.subtitle}</div>
+      <div class="score-formula-block"><pre style="margin:0;white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.7;">${info.formula}</pre></div>
+      ${info.targets ? `<div class="score-targets">${info.targets}</div>` : ''}
+      <div class="score-legend" style="margin-top:16px;">
+        <span><span class="dot" style="background:var(--green)"></span> 100+ = Great, boost this ad</span>
+        <span><span class="dot" style="background:var(--orange)"></span> 70–99 = Getting there, keep watching</span>
+        <span><span class="dot" style="background:var(--red)"></span> Below 70 = Underperforming</span>
+      </div>
+    </div>`;
+    overlay.classList.add('open');
+  }
+
+  function closeScoreInfo() {
+    document.getElementById('scoreInfoOverlay').classList.remove('open');
+  }
+
+  // ====== HISTORICAL PERFORMANCE VIEW ======
+
+  async function openHistory(adId, platform, adName) {
+    const overlay = document.getElementById('historyOverlay');
+    overlay.classList.add('open');
+    overlay.innerHTML = `
+      <div class="history-container">
+        <div class="history-header">
+          <div class="history-title">Loading history...</div>
+          <button class="history-close" onclick="closeHistory()">&times;</button>
+        </div>
+        <div class="report-loading">
+          <div class="spinner"></div>
+          <span style="font-size:13px; color:var(--text-3);">Fetching snapshot data...</span>
+        </div>
+      </div>
+    `;
+
+    try {
+      const res = await fetch(`${SERVER_BASE}/ad-history/${adId}?platform=${platform}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      renderHistory(data, adName, platform);
+    } catch (err) {
+      overlay.innerHTML = `
+        <div class="history-container">
+          <div class="history-header">
+            <div class="history-title">${esc(adName)}</div>
+            <button class="history-close" onclick="closeHistory()">&times;</button>
+          </div>
+          <div class="history-empty">
+            <div class="history-empty-icon">&#9888;</div>
+            <div style="font-size:14px; margin-bottom:6px;">Could not load history</div>
+            <div style="font-size:12px;">${esc(err.message)}</div>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  function closeHistory() {
+    document.getElementById('historyOverlay').classList.remove('open');
+  }
+
+  function renderHistory(data, adName, platform) {
+    const overlay = document.getElementById('historyOverlay');
+    const snaps = data.snapshots || [];
+    const tracking = data.tracking;
+
+    let h = `<div class="history-container">`;
+    h += `<div class="history-header">`;
+    h += `<div><div class="history-title">${esc(adName)}</div>`;
+    h += `<div style="font-size:11px; color:var(--text-3); margin-top:2px;">${cap(platform)} &middot; ${snaps.length} snapshots captured</div></div>`;
+    h += `<button class="history-close" onclick="closeHistory()">&times;</button>`;
+    h += `</div>`;
+
+    if (snaps.length === 0) {
+      h += `<div class="history-empty">`;
+      h += `<div class="history-empty-icon">&#128247;</div>`;
+      h += `<div style="font-size:15px; font-weight:600; margin-bottom:8px;">No snapshots yet</div>`;
+      h += `<div style="font-size:13px; max-width:360px; margin:0 auto;">Snapshots are captured automatically once this ad starts delivering. The first snapshot will appear within 30-60 minutes of the ad going live.</div>`;
+      if (tracking) {
+        h += `<div style="font-size:11px; margin-top:12px; color:var(--text-3);">Tracking since ${new Date(tracking.first_seen_active).toLocaleString()}</div>`;
+      }
+      h += `</div>`;
+      h += `</div>`;
+      overlay.innerHTML = h;
+      return;
+    }
+
+    // Compute deltas from first to last snapshot
+    const first = snaps[0];
+    const last = snaps[snaps.length - 1];
+    const reachGrowth = last.reach - first.reach;
+    const spendGrowth = last.spend - first.spend;
+    const clicksGrowth = last.link_clicks - first.link_clicks;
+    const timeSpanH = ((new Date(last.captured_at) - new Date(first.captured_at)) / 3600000).toFixed(1);
+
+    // KPI cards
+    h += `<div class="history-kpis">`;
+    const kpis = [
+      ['Current Reach', fmt(last.reach), reachGrowth > 0 ? '+'+fmt(reachGrowth) : '—', 'var(--blue)'],
+      ['Current Spend', '\u20ac'+(last.spend||0).toFixed(2), spendGrowth > 0 ? '+\u20ac'+spendGrowth.toFixed(2) : '—', 'var(--text-1)'],
+      ['Link Clicks', fmt(last.link_clicks), clicksGrowth > 0 ? '+'+fmt(clicksGrowth) : '—', 'var(--green)'],
+      ['Time Tracked', timeSpanH + 'h', snaps.length + ' snapshots', 'var(--orange)']
+    ];
+    kpis.forEach(([label, value, delta, color]) => {
+      h += `<div class="history-kpi">`;
+      h += `<div class="history-kpi-label">${label}</div>`;
+      h += `<div class="history-kpi-value" style="color:${color}">${value}</div>`;
+      h += `<div class="history-kpi-delta" style="color:var(--text-3)">${delta}</div>`;
+      h += `</div>`;
+    });
+    h += `</div>`;
+
+    // Charts
+    h += `<div class="history-charts-grid">`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">Reach Over Time <span style="font-size:10px;color:var(--text-3);font-weight:400;">(CET)</span></div><canvas id="histReach" height="180"></canvas></div>`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">Spend Over Time <span style="font-size:10px;color:var(--text-3);font-weight:400;">(CET)</span></div><canvas id="histSpend" height="180"></canvas></div>`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">CTR Over Time <span style="font-size:10px;color:var(--text-3);font-weight:400;">(CET)</span></div><canvas id="histCTR" height="180"></canvas></div>`;
+    h += `<div class="history-chart-box"><div class="history-chart-title">CPM Over Time <span style="font-size:10px;color:var(--text-3);font-weight:400;">(CET)</span></div><canvas id="histCPM" height="180"></canvas></div>`;
+    h += `</div>`;
+
+    // Engagement chart (full width)
+    h += `<div class="history-chart-box"><div class="history-chart-title">Engagement Over Time <span style="font-size:10px;color:var(--text-3);font-weight:400;">(CET)</span></div><canvas id="histEngagement" height="160"></canvas></div>`;
+
+    // Snapshot table
+    h += `<div class="history-chart-box">`;
+    h += `<div class="history-chart-title">Snapshot Log</div>`;
+    h += `<div style="max-height:280px; overflow-y:auto;">`;
+    h += `<table class="history-snapshots-table">`;
+    h += `<tr><th>Period</th><th>Reach</th><th>Impressions</th><th>Spend</th><th>CTR</th><th>CPM</th><th>Clicks</th><th>Score</th></tr>`;
+    snaps.forEach(s => {
+      // Use stored hour_label or compute from snapshot_hours
+      const label = s.hour_label || clientHourLabel(s.snapshot_hours);
+      const score = s.awareness_score ?? s.engagement_score ?? s.traffic_score ?? '—';
+      h += `<tr>`;
+      h += `<td style="font-weight:600; color:var(--text-1);">${label}</td>`;
+      h += `<td>${fmt(s.reach)}</td>`;
+      h += `<td>${fmt(s.impressions)}</td>`;
+      h += `<td>\u20ac${(s.spend||0).toFixed(2)}</td>`;
+      h += `<td>${(s.ctr||0).toFixed(2)}%</td>`;
+      h += `<td>\u20ac${(s.cpm||0).toFixed(3)}</td>`;
+      h += `<td>${fmt(s.link_clicks)}</td>`;
+      h += `<td>${score}</td>`;
+      h += `</tr>`;
+    });
+    h += `</table></div></div>`;
+
+    h += `</div>`; // close history-container
+    overlay.innerHTML = h;
+
+    // Render charts
+    setTimeout(() => renderHistoryCharts(snaps), 50);
+  }
+
+  function renderHistoryCharts(snaps) {
+    const labels = snaps.map(s => s.hour_label || clientHourLabel(s.snapshot_hours));
+
+    const chartOpts = (color) => ({
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#1B2235' }, ticks: { color: '#5B6A85', font: { size: 9 }, maxRotation: 45 } },
+        y: { grid: { color: '#1B2235' }, ticks: { color: '#5B6A85', font: { size: 10 } } }
+      },
+      elements: {
+        point: { radius: 3, hoverRadius: 5, backgroundColor: color },
+        line: { tension: 0.3, borderWidth: 2 }
+      }
+    });
+
+    // Reach
+    const reachCtx = document.getElementById('histReach');
+    if (reachCtx) {
+      new Chart(reachCtx, {
+        type: 'line',
+        data: { labels, datasets: [{ data: snaps.map(s => s.reach), borderColor: '#53B7E8', backgroundColor: 'rgba(83,183,232,0.1)', fill: true }] },
+        options: chartOpts('#53B7E8')
+      });
+    }
+
+    // Spend
+    const spendCtx = document.getElementById('histSpend');
+    if (spendCtx) {
+      new Chart(spendCtx, {
+        type: 'line',
+        data: { labels, datasets: [{ data: snaps.map(s => s.spend), borderColor: '#FBBF24', backgroundColor: 'rgba(251,191,36,0.1)', fill: true }] },
+        options: chartOpts('#FBBF24')
+      });
+    }
+
+    // CTR
+    const ctrCtx = document.getElementById('histCTR');
+    if (ctrCtx) {
+      new Chart(ctrCtx, {
+        type: 'line',
+        data: { labels, datasets: [{ data: snaps.map(s => s.ctr), borderColor: '#34D399', backgroundColor: 'rgba(52,211,153,0.1)', fill: true }] },
+        options: chartOpts('#34D399')
+      });
+    }
+
+    // CPM
+    const cpmCtx = document.getElementById('histCPM');
+    if (cpmCtx) {
+      new Chart(cpmCtx, {
+        type: 'line',
+        data: { labels, datasets: [{ data: snaps.map(s => s.cpm), borderColor: '#A855F7', backgroundColor: 'rgba(168,85,247,0.1)', fill: true }] },
+        options: chartOpts('#A855F7')
+      });
+    }
+
+    // Engagement (multi-line)
+    const engCtx = document.getElementById('histEngagement');
+    if (engCtx) {
+      new Chart(engCtx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Likes', data: snaps.map(s => s.likes), borderColor: '#F87171', borderWidth: 2, tension: 0.3, pointRadius: 2 },
+            { label: 'Shares', data: snaps.map(s => s.shares), borderColor: '#53B7E8', borderWidth: 2, tension: 0.3, pointRadius: 2 },
+            { label: 'Saves', data: snaps.map(s => s.saves), borderColor: '#34D399', borderWidth: 2, tension: 0.3, pointRadius: 2 },
+            { label: 'Comments', data: snaps.map(s => s.comments), borderColor: '#FBBF24', borderWidth: 2, tension: 0.3, pointRadius: 2 }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom', labels: { color: '#95A1BA', font: { size: 10 }, padding: 12, usePointStyle: true } } },
+          scales: {
+            x: { grid: { color: '#1B2235' }, ticks: { color: '#5B6A85', font: { size: 9 }, maxRotation: 45 } },
+            y: { grid: { color: '#1B2235' }, ticks: { color: '#5B6A85', font: { size: 10 } } }
+          }
+        }
+      });
+    }
+  }
+
+  // ====== REPORT GENERATION ======
+  function openReport() {
+    const overlay = document.getElementById('reportOverlay');
+    overlay.classList.add('open');
+    overlay.innerHTML = `
+      <div class="report-container">
+        <button class="report-close" onclick="closeReport()">&times;</button>
+        <div class="report-picker">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <h3>Generate Performance Report</h3>
+          <p>Choose the date range for your report</p>
+          <div class="report-date-options">
+            <button class="report-date-btn" onclick="generateReport('last_7d')">Last 7 Days</button>
+            <button class="report-date-btn" onclick="generateReport('last_14d')">Last 14 Days</button>
+            <button class="report-date-btn" onclick="generateReport('last_30d')">Last 30 Days</button>
+            <button class="report-date-btn" onclick="generateReport('this_month')">This Month</button>
+            <button class="report-date-btn" onclick="generateReport('last_month')">Last Month</button>
+            <button class="report-date-btn" onclick="generateReport('maximum')">All Time</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function closeReport() {
+    document.getElementById('reportOverlay').classList.remove('open');
+  }
+
+  async function generateReport(datePreset) {
+    const overlay = document.getElementById('reportOverlay');
+    overlay.innerHTML = `
+      <div class="report-container">
+        <button class="report-close" onclick="closeReport()">&times;</button>
+        <div class="report-loading">
+          <div class="spinner"></div>
+          <span style="font-size:14px; font-weight:500;">Analyzing your ad performance...</span>
+          <span style="font-size:12px; color:var(--text-3);">This may take a few seconds</span>
+        </div>
+      </div>
+    `;
+
+    try {
+      const res = await fetch(`${SERVER_BASE}/generate-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ datePreset })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+
+      const report = await res.json();
+      renderReport(report);
+    } catch (err) {
+      overlay.innerHTML = `
+        <div class="report-container">
+          <button class="report-close" onclick="closeReport()">&times;</button>
+          <div class="report-picker">
+            <div style="color:var(--red); font-size:32px;">&#9888;</div>
+            <h3 style="color:var(--red);">Report Generation Failed</h3>
+            <p>${esc(err.message)}</p>
+            <button class="report-date-btn" onclick="openReport()" style="margin-top:8px;">Try Again</button>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  function renderReport(report) {
+    const overlay = document.getElementById('reportOverlay');
+    const cd = report.chartData || {};
+    const ov = cd.overview || {};
+    let h = `<div class="report-container">`;
+    h += `<button class="report-close" onclick="closeReport()">&times;</button>`;
+
+    // Header
+    h += `<div style="display:flex; align-items:center; gap:12px; margin-bottom:6px;">`;
+    h += `<img src="/assets/White fibreguard logo.png" alt="FibreGuard" style="height:22px; opacity:0.7;">`;
+    h += `<div class="report-title">${esc(report.title || 'Performance Report')}</div>`;
+    h += `</div>`;
+    h += `<div class="report-date">${esc(report.dateRange || '')} &middot; Generated ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>`;
+
+    // Overview KPI cards
+    h += `<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:24px;">`;
+    const kpis = [
+      ['Total Spend', '\u20ac' + (ov.totalSpend||0).toFixed(2), 'var(--text-1)'],
+      ['Total Reach', fmt(ov.totalReach||0), 'var(--blue)'],
+      ['Avg CTR', (ov.avgCTR||0).toFixed(2) + '%', 'var(--green)'],
+      ['Active Ads', ov.activeAds || 0, 'var(--green)']
+    ];
+    kpis.forEach(([label, value, color]) => {
+      h += `<div style="background:var(--bg-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px; text-align:center;">`;
+      h += `<div style="font-size:10px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.3px;">${label}</div>`;
+      h += `<div style="font-size:20px; font-weight:800; color:${color}; margin-top:4px;">${value}</div>`;
+      h += `</div>`;
+    });
+    h += `</div>`;
+
+    // Executive Summary
+    h += `<div class="report-summary">${esc(report.executiveSummary || '')}</div>`;
+
+    // Highlights & Concerns
+    if ((report.highlights && report.highlights.length) || (report.concerns && report.concerns.length)) {
+      h += `<div class="report-highlights">`;
+      (report.highlights || []).forEach(hl => {
+        h += `<div class="report-highlight">&#10003; ${esc(hl)}</div>`;
+      });
+      (report.concerns || []).forEach(c => {
+        h += `<div class="report-concern">&#9888; ${esc(c)}</div>`;
+      });
+      h += `</div>`;
+    }
+
+    // Charts
+    h += `<div class="report-charts-grid">`;
+    h += `<div class="report-chart-container"><div class="report-chart-title">Spend by Campaign Type</div><canvas id="chartSpendByType" height="200"></canvas></div>`;
+    h += `<div class="report-chart-container"><div class="report-chart-title">Top Ads by Score</div><canvas id="chartTopAds" height="200"></canvas></div>`;
+    h += `</div>`;
+
+    // Sections
+    (report.sections || []).forEach(sec => {
+      h += `<div class="report-section">`;
+      h += `<div class="report-section-title">${esc(sec.title)}</div>`;
+      h += `<div class="report-section-content">${esc(sec.content)}</div>`;
+      if (sec.metrics && sec.metrics.length) {
+        h += `<div class="report-metrics-row">`;
+        sec.metrics.forEach(m => {
+          const trendClass = m.trend === 'up' ? 'trend-up' : m.trend === 'down' ? 'trend-down' : 'trend-neutral';
+          const trendIcon = m.trend === 'up' ? '&#9650;' : m.trend === 'down' ? '&#9660;' : '&#9654;';
+          h += `<div class="report-metric-card">`;
+          h += `<div class="report-metric-label">${esc(m.label)}</div>`;
+          h += `<div class="report-metric-value">${esc(m.value)}</div>`;
+          h += `<div class="report-metric-trend ${trendClass}">${trendIcon} ${esc(m.trend || 'neutral')}</div>`;
+          h += `</div>`;
+        });
+        h += `</div>`;
+      }
+      h += `</div>`;
+    });
+
+    // Platform Comparison
+    if (report.platformComparison) {
+      const pc = report.platformComparison;
+      h += `<div class="report-section">`;
+      h += `<div class="report-section-title">&#127760; Platform Comparison</div>`;
+      h += `<div class="report-section-content">${esc(pc.summary || '')}</div>`;
+      h += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">`;
+      if (pc.instagram) {
+        h += `<div style="padding:14px; background:var(--bg-1); border-radius:var(--radius-xs); border:1px solid var(--border);">`;
+        h += `<div style="font-weight:600; color:#E1306C; margin-bottom:6px;">Instagram</div>`;
+        h += `<div style="font-size:12px; color:var(--text-2);">&#10003; ${esc(pc.instagram.strength || '')}</div>`;
+        h += `<div style="font-size:12px; color:var(--text-3); margin-top:4px;">&#9888; ${esc(pc.instagram.weakness || '')}</div>`;
+        h += `</div>`;
+      }
+      if (pc.facebook) {
+        h += `<div style="padding:14px; background:var(--bg-1); border-radius:var(--radius-xs); border:1px solid var(--border);">`;
+        h += `<div style="font-weight:600; color:#1877F2; margin-bottom:6px;">Facebook</div>`;
+        h += `<div style="font-size:12px; color:var(--text-2);">&#10003; ${esc(pc.facebook.strength || '')}</div>`;
+        h += `<div style="font-size:12px; color:var(--text-3); margin-top:4px;">&#9888; ${esc(pc.facebook.weakness || '')}</div>`;
+        h += `</div>`;
+      }
+      h += `</div></div>`;
+    }
+
+    // Recommendations
+    if (report.recommendations && report.recommendations.length) {
+      h += `<div style="margin-bottom:24px;">`;
+      h += `<div style="font-size:15px; font-weight:700; margin-bottom:12px;">&#128161; Recommendations</div>`;
+      report.recommendations.forEach(rec => {
+        const pClass = rec.priority === 'high' ? 'priority-high' : rec.priority === 'medium' ? 'priority-medium' : 'priority-low';
+        h += `<div class="report-rec">`;
+        h += `<span class="report-rec-priority ${pClass}">${esc(rec.priority)}</span>`;
+        h += `<div><div class="report-rec-text">${esc(rec.action)}</div>`;
+        if (rec.reason) h += `<div class="report-rec-reason">${esc(rec.reason)}</div>`;
+        h += `</div></div>`;
+      });
+      h += `</div>`;
+    }
+
+    // Footer
+    h += `<div style="text-align:center; padding-top:16px; border-top:1px solid var(--border); font-size:11px; color:var(--text-3);">`;
+    h += `Generated by FibreGuard Ad Intelligence &middot; ${new Date().toLocaleDateString()}`;
+    h += `</div>`;
+
+    h += `</div>`; // close report-container
+    overlay.innerHTML = h;
+
+    // Render charts after DOM update
+    setTimeout(() => renderReportCharts(cd), 50);
+  }
+
+  function renderReportCharts(cd) {
+    // Spend by Type (Doughnut)
+    const spendCtx = document.getElementById('chartSpendByType');
+    if (spendCtx && cd.spendByType) {
+      new Chart(spendCtx, {
+        type: 'doughnut',
+        data: {
+          labels: cd.spendByType.map(d => d.label),
+          datasets: [{
+            data: cd.spendByType.map(d => d.value),
+            backgroundColor: ['#53B7E8', '#A855F7', '#34D399'],
+            borderColor: '#121722',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'bottom', labels: { color: '#95A1BA', font: { size: 11 }, padding: 16 } }
+          }
+        }
+      });
+    }
+
+    // Top Ads (Horizontal Bar)
+    const topCtx = document.getElementById('chartTopAds');
+    if (topCtx && cd.topAdsScores) {
+      const typeColors = { awareness: '#53B7E8', engagement: '#A855F7', traffic: '#34D399' };
+      new Chart(topCtx, {
+        type: 'bar',
+        data: {
+          labels: cd.topAdsScores.map(d => d.name),
+          datasets: [{
+            data: cd.topAdsScores.map(d => d.score),
+            backgroundColor: cd.topAdsScores.map(d => typeColors[d.type] || '#53B7E8'),
+            borderRadius: 4,
+            barThickness: 18
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: '#1B2235' }, ticks: { color: '#5B6A85', font: { size: 10 } } },
+            y: { grid: { display: false }, ticks: { color: '#95A1BA', font: { size: 10 } } }
+          }
+        }
+      });
+    }
+  }
+</script>
+
+<!-- History Modal Overlay -->
+<div class="history-overlay" id="historyOverlay"></div>
+
+<!-- Report Modal Overlay -->
+<div class="report-overlay" id="reportOverlay"></div>
+
+<!-- Score Info Overlay -->
+<div class="score-info-overlay" id="scoreInfoOverlay" onclick="if(event.target===this)closeScoreInfo()"></div>
+
+</body>
+</html>
