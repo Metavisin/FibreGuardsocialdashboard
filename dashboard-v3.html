@@ -1016,7 +1016,7 @@
       </button>
       <div id="platformBadge" style="display:flex; align-items:center;"></div>
       <span class="pill active" style="cursor:default; margin:0;"><span class="live-dot"></span>Live</span>
-      <button class="pill" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; opacity:0.6; margin:0;">Hide Completed</button>
+      <button class="pill active" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; margin:0;">Hide Completed</button>
     </div>
   </div>
 
@@ -1120,6 +1120,11 @@
     badge.innerHTML = `<span style="padding:5px 12px; border-radius:20px; font-size:11px; font-weight:600; background:${colors[platform]}20; color:${colors[platform]}; border:1px solid ${colors[platform]}40;">${labels[platform]}</span>`;
 
     applyFilters();
+
+    // Apply hide-completed by default so only live ads show first
+    if (hideCompleted) {
+      document.querySelectorAll('.ad-grid').forEach(g => g.classList.add('hide-completed'));
+    }
   }
 
   function backToPlatforms() {
@@ -1963,7 +1968,7 @@
   }
 
   // ====== TOGGLE COMPLETED ADS ======
-  let hideCompleted = false;
+  let hideCompleted = true; // Default: hide completed ads, show only live
   function toggleCompleted(btn) {
     hideCompleted = !hideCompleted;
     btn.classList.toggle('active', hideCompleted);

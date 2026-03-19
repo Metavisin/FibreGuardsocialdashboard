@@ -65,15 +65,16 @@ app.get("/", async (req, res) => {
       return res.send(`<html><body style="background:#0D1117;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;"><div style="text-align:center;"><h2>TikTok Authorization Error</h2><p>${err.message}</p><a href="/" style="color:#53B7E8;">Back to Dashboard</a></div></body></html>`);
     }
   }
-  res.sendFile(path.join(__dirname, "dashboard.html"));
+  res.sendFile(path.join(__dirname, "dashboard-v3.html")); // Default: v3 with login + platform selector
 });
 
-// V2 preview — glassmorphism redesign
+// Legacy versions — kept for rollback
+app.get("/v1", (req, res) => {
+  res.sendFile(path.join(__dirname, "dashboard.html"));
+});
 app.get("/v2", (req, res) => {
   res.sendFile(path.join(__dirname, "dashboard-v2.html"));
 });
-
-// V3 — login + platform selector
 app.get("/v3", (req, res) => {
   res.sendFile(path.join(__dirname, "dashboard-v3.html"));
 });
