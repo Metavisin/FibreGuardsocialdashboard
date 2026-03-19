@@ -884,13 +884,13 @@
     letter-spacing: 0.4px; margin-top: 2px;
   }
   .platform-back-btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 8px 16px; border-radius: var(--radius-xs);
-    font-size: 12px; font-weight: 500; font-family: inherit;
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px; border-radius: 20px;
+    font-size: 11px; font-weight: 500; font-family: inherit;
     cursor: pointer; border: 1px solid var(--glass-border);
     background: var(--glass-bg); color: var(--text-2);
     transition: all 0.3s var(--ease-out);
-    margin-bottom: 16px;
+    white-space: nowrap;
   }
   .platform-back-btn:hover {
     border-color: var(--border-light); color: var(--text-1);
@@ -1008,20 +1008,15 @@
   </div>
 
   <!-- Filters bar (shown after platform selection) -->
-  <div class="filters-bar" id="filtersBar" style="display:none;">
-    <div class="filter-group">
-      <button class="platform-back-btn" onclick="backToPlatforms()">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+  <div id="filtersBar" style="display:none; margin-bottom:20px; display:none;">
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:nowrap;">
+      <button class="platform-back-btn" onclick="backToPlatforms()" style="margin:0;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
         Platforms
       </button>
-    </div>
-    <div class="filter-group" id="platformBadge"></div>
-    <div class="filter-group">
-      <span class="pill active" style="cursor:default;"><span class="live-dot"></span>Live</span>
-    </div>
-    <div class="filter-spacer"></div>
-    <div class="filter-group">
-      <button class="pill" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; opacity:0.6;">Hide Completed</button>
+      <div id="platformBadge" style="display:flex; align-items:center;"></div>
+      <span class="pill active" style="cursor:default; margin:0;"><span class="live-dot"></span>Live</span>
+      <button class="pill" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; opacity:0.6; margin:0;">Hide Completed</button>
     </div>
   </div>
 
