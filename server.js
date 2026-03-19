@@ -821,18 +821,14 @@ async function fetchTikTokThumbnails(token, ads) {
 
 async function fetchTikTokInsights(token, adIds) {
   if (!token) return [];
-  try {
-    const endDate = new Date().toISOString().split("T")[0];
-    const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const endDate = new Date().toISOString().split("T")[0];
+  const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-    // PROVEN WORKING: Only ["spend", "impressions", "clicks"] returns data reliably.
-    // Extended/basic metric sets cause TikTok API to return 0 rows silently.
-    // We fetch raw data and calculate derived metrics (CPM, CPC, CTR) in processing.
-    const metrics = ["spend", "impressions", "clicks"];
+  // Extended metrics include engagement + video data
+  const extendedMetrics = ["spend", "impressions", "clicks", "reach", "likes", "shares", "comments", "favorites", "video_watched_2s", "video_play_actions"];
+  const basicMetrics = ["spend", "impressions", "clicks"];
 
-    console.log(`TikTok insights: ${startDate} to ${endDate}, metrics: ${JSON.stringify(metrics)}`);
-
-    // Paginate to get ALL results
+  async function fetchWithMetrics(metricsArray) {
     let allRows = [];
     let page = 1;
     const pageSize = 200;
@@ -840,15 +836,11 @@ async function fetchTikTokInsights(token, adIds) {
     while (true) {
       const res = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
         params: {
-          advertiser_id: token.advertiser_id,
-          report_type: "BASIC",
-          data_level: "AUCTION_AD",
-          dimensions: JSON.stringify(["ad_id"]),
-          metrics: JSON.stringify(metrics),
-          start_date: startDate,
-          end_date: endDate,
-          page_size: pageSize,
-          page: page
+          advertiser_id: token.advertiser_id, report_type: "BASIC",
+          data_level: "AUCTION_AD", dimensions: JSON.stringify(["ad_id"]),
+          metrics: JSON.stringify(metricsArray),
+          start_date: startDate, end_date: endDate,
+          page_size: pageSize, page: page
         },
         headers: { "Access-Token": token.access_token }
       });
@@ -858,23 +850,34 @@ async function fetchTikTokInsights(token, adIds) {
       const pageInfo = res.data?.data?.page_info || {};
       console.log(`TikTok insights page ${page}: ${list.length} rows, code: ${code}, total: ${pageInfo.total_number || "?"}`);
 
-      if (code !== 0) {
-        console.warn(`TikTok insights API error: code=${code}, message=${res.data?.message}`);
-        break;
-      }
-
+      if (code !== 0) throw new Error(`TikTok API code ${code}: ${res.data?.message || "unknown"}`);
       allRows = allRows.concat(list);
-
-      // Check if there are more pages
-      const totalPages = pageInfo.total_page || 1;
-      if (page >= totalPages) break;
+      if (page >= (pageInfo.total_page || 1)) break;
       page++;
     }
-
-    console.log(`TikTok insights total: ${allRows.length} rows across ${page} page(s)`);
     return allRows;
+  }
+
+  // Try extended metrics first, fall back to basic 3 if it fails
+  try {
+    console.log(`TikTok insights (extended): ${startDate} to ${endDate}, metrics: ${JSON.stringify(extendedMetrics)}`);
+    const rows = await fetchWithMetrics(extendedMetrics);
+    if (rows.length > 0) {
+      console.log(`✅ TikTok extended metrics SUCCESS: ${rows.length} rows`);
+      return rows;
+    }
+    console.log(`⚠️ TikTok extended metrics returned 0 rows, falling back to basic...`);
   } catch (err) {
-    console.warn("TikTok insights fetch failed:", JSON.stringify(err.response?.data || err.message));
+    console.log(`⚠️ TikTok extended metrics failed: ${err.message}, falling back to basic...`);
+  }
+
+  try {
+    console.log(`TikTok insights (basic fallback): metrics: ${JSON.stringify(basicMetrics)}`);
+    const rows = await fetchWithMetrics(basicMetrics);
+    console.log(`TikTok basic metrics: ${rows.length} rows`);
+    return rows;
+  } catch (err) {
+    console.warn("TikTok insights failed (both extended and basic):", JSON.stringify(err.response?.data || err.message));
     return [];
   }
 }
@@ -943,26 +946,25 @@ function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignSta
 
     const clicks = safeNumber(metrics.clicks);
 
-    // TikTok API only reliably returns spend/impressions/clicks.
-    // Calculate all derived metrics from these three values.
-    const reach = safeNumber(metrics.reach) || impressions; // Use impressions as reach proxy if reach not available
+    // Calculate derived metrics — use real reach/engagement if available from extended metrics
+    const reach = safeNumber(metrics.reach) || impressions;
     const cpm = impressions > 0 ? round((spend / impressions) * 1000) : 0;
     const cpc = clicks > 0 ? round(spend / clicks) : 0;
     const ctr = impressions > 0 ? round((clicks / impressions) * 100) : 0;
     const frequency = reach > 0 ? round(impressions / reach, 2) : 0;
 
-    // These metrics won't be available from the minimal API response
-    // but we set them to 0 so the dashboard doesn't break
+    // TikTok engagement metrics (available when extended metrics succeed)
     const videoViews = safeNumber(metrics.video_play_actions);
-    const video2s = safeNumber(metrics.video_watched_2s);
-    const likes = safeNumber(metrics.likes);
-    const comments = safeNumber(metrics.comments);
-    const shares = safeNumber(metrics.shares);
-    const landingPageViews = safeNumber(metrics.landing_page_view) || clicks; // Use clicks as proxy for landing page views
+    const video2s = safeNumber(metrics.video_watched_2s); // TikTok uses 2-second views
+    const ttLikes = safeNumber(metrics.likes);
+    const ttComments = safeNumber(metrics.comments);
+    const ttShares = safeNumber(metrics.shares);
+    const ttFavorites = safeNumber(metrics.favorites); // TikTok's equivalent of "saves"
+    const landingPageViews = safeNumber(metrics.landing_page_view) || clicks;
     const viewRate = impressions > 0 ? round((video2s / impressions) * 100) : 0;
     const lpvr = clicks > 0 ? round(landingPageViews / clicks, 4) : 0;
 
-    console.log(`TikTok ad ${adId}: campaign="${adInfo.campaign_name}", obj="${adInfo.objective}", type=${campaignType}, status=${adStatus}, spend=${spend}, reach=${reach}`);
+    console.log(`TikTok ad ${adId}: campaign="${adInfo.campaign_name}", obj="${adInfo.objective}", type=${campaignType}, status=${adStatus}, spend=${spend}, reach=${reach}, likes=${ttLikes}, shares=${ttShares}, favorites=${ttFavorites}`);
 
     const ttAgeH = adInfo.created_time ? Math.round(hoursAgo(adInfo.created_time)) : 0;
     rows.push({
@@ -989,11 +991,11 @@ function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignSta
       landing_page_views: landingPageViews,
       lpvr,
       video_3s_views: videoViews,
-      video_3s_view_rate: viewRate,
-      likes,
-      comments,
-      shares,
-      saves: 0,
+      video_3s_view_rate: viewRate, // TikTok: 2-second view rate stored here
+      likes: ttLikes,
+      comments: ttComments,
+      shares: ttShares,
+      saves: ttFavorites, // TikTok "favorites" = Meta "saves"
       link_clicks: clicks,
       ctr,
       awareness_score: null,

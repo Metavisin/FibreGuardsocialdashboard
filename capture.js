@@ -228,14 +228,14 @@ async function fetchTikTokActiveAds(token) {
 
 async function fetchTikTokInsights(token, adIds) {
   if (!token) return [];
-  try {
-    const endDate = new Date().toISOString().split("T")[0];
-    const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const endDate = new Date().toISOString().split("T")[0];
+  const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-    // PROVEN WORKING: Only ["spend", "impressions", "clicks"] returns data reliably.
-    const metrics = ["spend", "impressions", "clicks"];
-    console.log(`TikTok insights: ${startDate} to ${endDate}, metrics: ${JSON.stringify(metrics)}`);
+  // Try extended metrics first (engagement + video), fall back to basic 3 if it fails
+  const extendedMetrics = ["spend", "impressions", "clicks", "reach", "likes", "shares", "comments", "favorites", "video_watched_2s", "video_play_actions"];
+  const basicMetrics = ["spend", "impressions", "clicks"];
 
+  async function fetchWithMetrics(metricsArray) {
     let allRows = [];
     let page = 1;
     const pageSize = 200;
@@ -245,7 +245,7 @@ async function fetchTikTokInsights(token, adIds) {
         params: {
           advertiser_id: token.advertiser_id, report_type: "BASIC",
           data_level: "AUCTION_AD", dimensions: JSON.stringify(["ad_id"]),
-          metrics: JSON.stringify(metrics),
+          metrics: JSON.stringify(metricsArray),
           start_date: startDate, end_date: endDate,
           page_size: pageSize, page: page
         },
@@ -257,15 +257,37 @@ async function fetchTikTokInsights(token, adIds) {
       const pageInfo = res.data?.data?.page_info || {};
       console.log(`TikTok insights page ${page}: ${list.length} rows, code: ${code}, total: ${pageInfo.total_number || "?"}`);
 
-      if (code !== 0) break;
+      if (code !== 0) throw new Error(`TikTok API code ${code}: ${res.data?.message || "unknown"}`);
       allRows = allRows.concat(list);
       if (page >= (pageInfo.total_page || 1)) break;
       page++;
     }
-
-    console.log(`TikTok insights total: ${allRows.length} rows across ${page} page(s)`);
     return allRows;
-  } catch (err) { console.warn("TikTok insights failed:", JSON.stringify(err.response?.data || err.message)); return []; }
+  }
+
+  // Try extended metrics first
+  try {
+    console.log(`TikTok insights (extended): ${startDate} to ${endDate}, metrics: ${JSON.stringify(extendedMetrics)}`);
+    const rows = await fetchWithMetrics(extendedMetrics);
+    if (rows.length > 0) {
+      console.log(`✅ TikTok extended metrics SUCCESS: ${rows.length} rows (engagement + video data available)`);
+      return rows;
+    }
+    console.log(`⚠️ TikTok extended metrics returned 0 rows, falling back to basic...`);
+  } catch (err) {
+    console.log(`⚠️ TikTok extended metrics failed: ${err.message}, falling back to basic...`);
+  }
+
+  // Fallback to basic 3 metrics
+  try {
+    console.log(`TikTok insights (basic fallback): metrics: ${JSON.stringify(basicMetrics)}`);
+    const rows = await fetchWithMetrics(basicMetrics);
+    console.log(`TikTok basic metrics: ${rows.length} rows`);
+    return rows;
+  } catch (err) {
+    console.warn("TikTok insights failed (both extended and basic):", JSON.stringify(err.response?.data || err.message));
+    return [];
+  }
 }
 
 // Fetch TikTok ad thumbnails — supports Spark Ads (tiktok_item_id) and standard ads (video_id/image_ids)
@@ -422,7 +444,7 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
 
     const clicks = safeNumber(m.clicks);
 
-    // Calculate derived metrics from spend/impressions/clicks
+    // Calculate derived metrics — use real reach/engagement if available from extended metrics
     const reach = safeNumber(m.reach) || impressions;
     const cpm = impressions > 0 ? round((spend / impressions) * 1000) : 0;
     const cpc = clicks > 0 ? round(spend / clicks) : 0;
@@ -432,6 +454,15 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
     const lpvr = clicks > 0 ? round(landingPageViews / clicks, 4) : 0;
     const adCreated = info.created_time || null;
     const adAgeHours = adCreated ? Math.round(hoursAgo(adCreated)) : 0;
+
+    // TikTok engagement metrics (available when extended metrics succeed)
+    const ttLikes = safeNumber(m.likes);
+    const ttComments = safeNumber(m.comments);
+    const ttShares = safeNumber(m.shares);
+    const ttFavorites = safeNumber(m.favorites); // TikTok's equivalent of "saves"
+    const ttVideoViews = safeNumber(m.video_play_actions);
+    const ttVideo2s = safeNumber(m.video_watched_2s); // TikTok uses 2-second views
+    const ttVideoViewRate = impressions > 0 ? round((ttVideo2s / impressions) * 100) : 0;
 
     rows.push({
       captured_at: new Date().toISOString(),
@@ -451,10 +482,10 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
       spend, frequency,
       cost_per_click: cpc,
       landing_page_views: landingPageViews, lpvr,
-      video_3s_views: safeNumber(m.video_play_actions),
-      video_3s_view_rate: 0,
-      likes: safeNumber(m.likes), comments: safeNumber(m.comments),
-      shares: safeNumber(m.shares), saves: 0,
+      video_3s_views: ttVideoViews,
+      video_3s_view_rate: ttVideoViewRate, // TikTok: 2-second view rate stored here
+      likes: ttLikes, comments: ttComments,
+      shares: ttShares, saves: ttFavorites, // TikTok "favorites" = Meta "saves"
       link_clicks: clicks,
       ctr,
       awareness_score: null, engagement_score: null, traffic_score: null,

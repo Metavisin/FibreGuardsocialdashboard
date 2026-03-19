@@ -1428,49 +1428,72 @@
     });
   }
 
+  // ====== PLATFORM-SPECIFIC NAMING ======
+  // TikTok uses different campaign type names than Meta
+  function getCampaignLabel(type) {
+    const isTikTok = selectedPlatform === 'tiktok';
+    const isAll = selectedPlatform === 'all';
+    const labels = {
+      awareness: {
+        title: isTikTok ? 'Reach Campaigns' : isAll ? 'Awareness / Reach Campaigns' : 'Awareness Campaigns',
+        sub: 'Entertaining content'
+      },
+      engagement: {
+        title: isTikTok ? 'Community Campaigns' : isAll ? 'Engagement / Community Campaigns' : 'Engagement Campaigns',
+        sub: 'Educational content'
+      },
+      traffic: { title: 'Traffic Campaigns', sub: 'Link click driven' }
+    };
+    return labels[type] || { title: type, sub: '' };
+  }
+
+  // Platform-specific metric labels
+  function getViewRateLabel() {
+    return selectedPlatform === 'tiktok' ? '2s View Rate' : '3s View Rate';
+  }
+  function getSavesLabel() {
+    return selectedPlatform === 'tiktok' ? 'Favorites' : 'Saves';
+  }
+
   // ====== RENDER ======
   function render(awareness, engagement, traffic) {
     const c = document.getElementById('dashboardContent');
     let h = '';
 
+    const awarenessLabel = getCampaignLabel('awareness');
+    const engagementLabel = getCampaignLabel('engagement');
+    const trafficLabel = getCampaignLabel('traffic');
+    const viewRateLabel = getViewRateLabel();
+    const savesLabel = getSavesLabel();
+
     h += buildSection({
-      type: 'awareness', title: 'Awareness Campaigns', sub: 'Entertaining content',
+      type: 'awareness', title: awarenessLabel.title, sub: awarenessLabel.sub,
       iconClass: 'icon-awareness', icon: '\u25C9',
-      formula: [['Reach','40%'],['CPM','40% inv'],['View Rate','20%']],
+      formula: [['Reach','40%'],['CPM','40% inv'],[viewRateLabel,'20%']],
       chipClass: 'chip-blue', ads: awareness, scoreKey: 'awareness_score',
       metrics: d => [
         ['Reach', fmt(d.reach)], ['CPM', '\u20ac'+(d.cpm||0).toFixed(3)],
-        ['Video Views', fmt(d.video_3s_views)], ['Video View Rate', (d.video_3s_view_rate||0).toFixed(1)+'%'],
+        ['Video Views', fmt(d.video_3s_views)], [viewRateLabel, (d.video_3s_view_rate||0).toFixed(1)+'%'],
         ['Spend', '\u20ac'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
       ],
-      summaryExtras: ads => {
-        const r = ads.reduce((s,d)=>s+(d.reach||0),0);
-        const cpm = ads.reduce((s,d)=>s+(d.cpm||0),0)/ads.length;
-        const spend = ads.reduce((s,d)=>s+(d.spend||0),0);
-        return [['Total Reach', fmt(r)], ['Avg CPM', '\u20ac'+cpm.toFixed(3)], ['Total Spend', '\u20ac'+spend.toFixed(2)]];
-      }
+      summaryExtras: ads => []
     });
 
     h += buildSection({
-      type: 'engagement', title: 'Engagement Campaigns', sub: 'Educational content',
+      type: 'engagement', title: engagementLabel.title, sub: engagementLabel.sub,
       iconClass: 'icon-engagement', icon: '\u2665',
-      formula: [['Share Rate','40%'],['Save Rate','30%'],['Comment Rate','20%'],['Like Rate','10%']],
+      formula: [['Share Rate','40%'],[savesLabel + ' Rate','30%'],['Comment Rate','20%'],['Like Rate','10%']],
       chipClass: 'chip-purple', ads: engagement, scoreKey: 'engagement_score',
       metrics: d => [
-        ['Shares', fmt(d.shares)], ['Saves', fmt(d.saves)],
+        ['Shares', fmt(d.shares)], [savesLabel, fmt(d.saves)],
         ['Comments', fmt(d.comments)], ['Likes', fmt(d.likes)],
         ['Spend', '\u20ac'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
       ],
-      summaryExtras: ads => {
-        const sh = ads.reduce((s,d)=>s+(d.shares||0),0);
-        const sv = ads.reduce((s,d)=>s+(d.saves||0),0);
-        const spend = ads.reduce((s,d)=>s+(d.spend||0),0);
-        return [['Total Shares', fmt(sh)], ['Total Saves', fmt(sv)], ['Total Spend', '\u20ac'+spend.toFixed(2)]];
-      }
+      summaryExtras: ads => []
     });
 
     h += buildSection({
-      type: 'traffic', title: 'Traffic Campaigns', sub: 'Link click driven',
+      type: 'traffic', title: trafficLabel.title, sub: trafficLabel.sub,
       iconClass: 'icon-traffic', icon: '\u2197',
       formula: [['CTR','40%'],['CPC','30% inv'],['LPVR','20%'],['Frequency','10% inv']],
       chipClass: 'chip-green', ads: traffic, scoreKey: 'traffic_score',
@@ -1483,12 +1506,7 @@
           ['Spend', '\u20ac'+(d.spend||0).toFixed(2)], ['Frequency', (d.frequency||0).toFixed(1)]
         ];
       },
-      summaryExtras: ads => {
-        const clicks = ads.reduce((s,d)=>s+(d.link_clicks||0),0);
-        const avgCtr = ads.reduce((s,d)=>s+(d.ctr||0),0)/ads.length;
-        const spend = ads.reduce((s,d)=>s+(d.spend||0),0);
-        return [['Total Clicks', fmt(clicks)], ['Avg CTR', avgCtr.toFixed(2)+'%'], ['Total Spend', '\u20ac'+spend.toFixed(2)]];
-      }
+      summaryExtras: ads => []
     });
 
     c.innerHTML = h;
@@ -1994,11 +2012,19 @@
   }
 
   // ====== SCORE INFO POPOVER ======
-  const SCORE_EXPLANATIONS = {
-    awareness: {
-      title: 'Awareness Score',
-      subtitle: 'How well is your ad getting seen by people?',
-      formula: `We compare your ad's numbers to our targets and give each one a weight:
+  function getScoreExplanations() {
+    const isTikTok = selectedPlatform === 'tiktok';
+    const viewLabel = isTikTok ? '2-second view rate' : '3-second view rate';
+    const savesLabel = isTikTok ? 'Favorites' : 'Saves';
+    const savesDesc = isTikTok ? 'People favoriting your ad to come back to later.' : 'People saving your ad to come back to later.';
+    const awarenessTitle = isTikTok ? 'Reach Score' : 'Awareness Score';
+    const engagementTitle = isTikTok ? 'Community Score' : 'Engagement Score';
+
+    return {
+      awareness: {
+        title: awarenessTitle,
+        subtitle: 'How well is your ad getting seen by people?',
+        formula: `We compare your ad's numbers to our targets and give each one a weight:
 
 <strong>Reach (40%)</strong> — How many people saw your ad?
 Target: ${(TARGETS.awareness.reach/1000).toFixed(0)}K people
@@ -2006,23 +2032,23 @@ Target: ${(TARGETS.awareness.reach/1000).toFixed(0)}K people
 <strong>Cost per 1K views (40%)</strong> — How cheaply are you reaching people?
 Target: &euro;${TARGETS.awareness.cpm} per 1,000 views
 
-<strong>Video view rate (20%)</strong> — What % of people watched the video?
+<strong>${cap(viewLabel)} (20%)</strong> — What % of people watched the video?
 Target: ${TARGETS.awareness.viewRate}%
 
 A score of <strong>100</strong> means you're hitting all targets perfectly.
 Higher = better. You can score up to 200 if you're smashing every target.`,
-      targets: ``
-    },
-    engagement: {
-      title: 'Engagement Score',
-      subtitle: 'How much are people interacting with your ad?',
-      formula: `We measure how many shares, saves, comments and likes your ad gets per 1,000 people reached:
+        targets: ``
+      },
+      engagement: {
+        title: engagementTitle,
+        subtitle: 'How much are people interacting with your ad?',
+        formula: `We measure how many shares, ${savesLabel.toLowerCase()}, comments and likes your ad gets per 1,000 people reached:
 
 <strong>Shares (40%)</strong> — The strongest signal. People sharing your ad with others.
 Target: ${TARGETS.engagement.shareRate} shares per 1K reach
 
-<strong>Saves (30%)</strong> — People saving your ad to come back to later.
-Target: ${TARGETS.engagement.saveRate} saves per 1K reach
+<strong>${savesLabel} (30%)</strong> — ${savesDesc}
+Target: ${TARGETS.engagement.saveRate} ${savesLabel.toLowerCase()} per 1K reach
 
 <strong>Comments (20%)</strong> — People taking the time to comment.
 Target: ${TARGETS.engagement.commentRate} comments per 1K reach
@@ -2031,12 +2057,12 @@ Target: ${TARGETS.engagement.commentRate} comments per 1K reach
 Target: ${TARGETS.engagement.likeRate} likes per 1K reach
 
 A score of <strong>100</strong> means you're hitting all targets perfectly.`,
-      targets: ``
-    },
-    traffic: {
-      title: 'Traffic Score',
-      subtitle: 'How well is your ad driving people to the website?',
-      formula: `We measure how effectively your ad gets people to click through and visit:
+        targets: ``
+      },
+      traffic: {
+        title: 'Traffic Score',
+        subtitle: 'How well is your ad driving people to the website?',
+        formula: `We measure how effectively your ad gets people to click through and visit:
 
 <strong>Click-through rate (40%)</strong> — What % of people click your ad?
 Target: ${TARGETS.traffic.ctr}%
@@ -2051,12 +2077,13 @@ Target: ${(TARGETS.traffic.lpvr*100).toFixed(0)}%
 Target: max ${TARGETS.traffic.frequency} times per person
 
 A score of <strong>100</strong> means you're hitting all targets perfectly.`,
-      targets: ``
-    }
-  };
+        targets: ``
+      }
+    };
+  }
 
   function showScoreInfo(type) {
-    const info = SCORE_EXPLANATIONS[type];
+    const info = getScoreExplanations()[type];
     if (!info) return;
     const overlay = document.getElementById('scoreInfoOverlay');
     overlay.innerHTML = `<div class="score-info-modal">
