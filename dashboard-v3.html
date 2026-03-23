@@ -2324,18 +2324,17 @@ A score of <strong>100</strong> means you're hitting all targets perfectly.`,
     overlay.innerHTML = `
       <div class="report-container">
         <button class="report-close" onclick="closeReport()">&times;</button>
-        <div class="report-picker">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <h3>Generate Performance Report</h3>
-          <p>Choose the date range for your report</p>
-          <div class="report-date-options">
-            <button class="report-date-btn" onclick="generateReport('last_7d')">Last 7 Days</button>
-            <button class="report-date-btn" onclick="generateReport('last_14d')">Last 14 Days</button>
-            <button class="report-date-btn" onclick="generateReport('last_30d')">Last 30 Days</button>
-            <button class="report-date-btn" onclick="generateReport('this_month')">This Month</button>
-            <button class="report-date-btn" onclick="generateReport('last_month')">Last Month</button>
-            <button class="report-date-btn" onclick="generateReport('maximum')">All Time</button>
-          </div>
+        <div class="report-picker" style="text-align:center; padding:40px 20px;">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--orange)" stroke-width="1.5" style="margin-bottom:16px;">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <h3 style="color:var(--orange); margin-bottom:8px;">Under Construction</h3>
+          <p style="color:var(--text-2); max-width:340px; margin:0 auto; line-height:1.5;">
+            AI-powered performance reports are currently being developed. This feature will use Claude to generate in-depth campaign analysis and recommendations.
+          </p>
+          <p style="color:var(--text-3); font-size:12px; margin-top:16px;">Check back soon!</p>
         </div>
       </div>
     `;
