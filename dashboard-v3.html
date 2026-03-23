@@ -1993,6 +1993,12 @@
     if (hours <= 12) return ord[Math.min(11, Math.floor(hours))] + " hour";
     return (Math.ceil(hours / 24) * 24) + " hours";
   }
+  // Sequential label based on snapshot position (index), not stored snapshot_hours
+  function sequentialHourLabel(index, totalSnaps) {
+    const ord = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth","Eleventh","Twelfth"];
+    if (index < 12) return ord[index] + " hour";
+    return (Math.ceil((index + 1) / 24) * 24) + " hours";
+  }
   function sColor(s) {
     if (s >= 100) return 'var(--green)';
     if (s >= 70) return 'var(--orange)';
@@ -2205,9 +2211,9 @@ A score of <strong>100</strong> means you're hitting all targets perfectly.`,
     h += `<div style="max-height:280px; overflow-y:auto;">`;
     h += `<table class="history-snapshots-table">`;
     h += `<tr><th>Period</th><th>Reach</th><th>Impressions</th><th>Spend</th><th>CTR</th><th>CPM</th><th>Clicks</th><th>Score</th></tr>`;
-    snaps.forEach(s => {
-      // Always recalculate from snapshot_hours to ensure correct labels
-      const label = clientHourLabel(s.snapshot_hours);
+    snaps.forEach((s, idx) => {
+      // Use sequential position for hourly snapshots to avoid gaps from GH Actions timing
+      const label = (s.snapshot_hours != null && s.snapshot_hours <= 12) ? sequentialHourLabel(idx) : clientHourLabel(s.snapshot_hours);
       const score = s.awareness_score ?? s.engagement_score ?? s.traffic_score ?? '—';
       h += `<tr>`;
       h += `<td style="font-weight:600; color:var(--text-1);">${label}</td>`;
@@ -2230,7 +2236,7 @@ A score of <strong>100</strong> means you're hitting all targets perfectly.`,
   }
 
   function renderHistoryCharts(snaps) {
-    const labels = snaps.map(s => clientHourLabel(s.snapshot_hours));
+    const labels = snaps.map((s, idx) => (s.snapshot_hours != null && s.snapshot_hours <= 12) ? sequentialHourLabel(idx) : clientHourLabel(s.snapshot_hours));
 
     const chartOpts = (color) => ({
       responsive: true,
