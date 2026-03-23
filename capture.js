@@ -46,7 +46,7 @@ function computeHourLabel(hours) {
   const ordinals = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth",
     "Seventh", "Eighth", "Ninth", "Tenth", "Eleventh", "Twelfth"];
   if (hours <= 0) return "Launch";
-  if (hours <= 12) return ordinals[Math.max(0, Math.ceil(hours) - 1)] + " hour";
+  if (hours <= 12) return ordinals[Math.min(11, Math.floor(hours))] + " hour";
   // After 12 hours, show in 24h blocks
   const days = Math.ceil(hours / 24);
   return (days * 24) + " hours";

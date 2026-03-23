@@ -1990,7 +1990,7 @@
   function clientHourLabel(hours) {
     const ord = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth","Eleventh","Twelfth"];
     if (!hours || hours <= 0) return "Launch";
-    if (hours <= 12) return ord[Math.max(0, Math.ceil(hours) - 1)] + " hour";
+    if (hours <= 12) return ord[Math.min(11, Math.floor(hours))] + " hour";
     return (Math.ceil(hours / 24) * 24) + " hours";
   }
   function sColor(s) {
@@ -2206,8 +2206,8 @@ A score of <strong>100</strong> means you're hitting all targets perfectly.`,
     h += `<table class="history-snapshots-table">`;
     h += `<tr><th>Period</th><th>Reach</th><th>Impressions</th><th>Spend</th><th>CTR</th><th>CPM</th><th>Clicks</th><th>Score</th></tr>`;
     snaps.forEach(s => {
-      // Use stored hour_label or compute from snapshot_hours
-      const label = s.hour_label || clientHourLabel(s.snapshot_hours);
+      // Always recalculate from snapshot_hours to ensure correct labels
+      const label = clientHourLabel(s.snapshot_hours);
       const score = s.awareness_score ?? s.engagement_score ?? s.traffic_score ?? '—';
       h += `<tr>`;
       h += `<td style="font-weight:600; color:var(--text-1);">${label}</td>`;
@@ -2230,7 +2230,7 @@ A score of <strong>100</strong> means you're hitting all targets perfectly.`,
   }
 
   function renderHistoryCharts(snaps) {
-    const labels = snaps.map(s => s.hour_label || clientHourLabel(s.snapshot_hours));
+    const labels = snaps.map(s => clientHourLabel(s.snapshot_hours));
 
     const chartOpts = (color) => ({
       responsive: true,
