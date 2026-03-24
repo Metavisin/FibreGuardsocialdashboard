@@ -908,6 +908,24 @@
     border-color: var(--border-light); color: var(--text-1);
     background: rgba(255,255,255,0.06); transform: translateY(-1px);
   }
+
+  /* Disabled state while data is loading */
+  .platform-card.loading-disabled,
+  .platform-all-btn.loading-disabled {
+    pointer-events: none; opacity: 0.45;
+    filter: grayscale(0.3);
+    transform: none !important;
+  }
+  .platform-card.loading-disabled:hover { transform: none !important; box-shadow: none !important; }
+  .platform-cards.data-ready .platform-card {
+    animation: cardReady 0.4s var(--ease-out) forwards;
+  }
+  .platform-cards.data-ready .platform-card:nth-child(2) { animation-delay: 0.08s; }
+  .platform-cards.data-ready .platform-card:nth-child(3) { animation-delay: 0.16s; }
+  @keyframes cardReady {
+    from { opacity: 0.45; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 </style>
 </head>
 <body>
@@ -959,7 +977,7 @@
       <div class="platform-selector-sub">Select a platform to view campaign performance</div>
       <div class="platform-cards">
         <!-- Instagram -->
-        <div class="platform-card card-instagram" onclick="selectPlatform('instagram')">
+        <div class="platform-card card-instagram loading-disabled" onclick="selectPlatform('instagram')">
           <div class="platform-card-logo">
             <svg viewBox="0 0 24 24" fill="none">
               <defs><linearGradient id="igGrad" x1="0" y1="24" x2="24" y2="0">
@@ -977,7 +995,7 @@
           <div class="platform-card-stats" id="igStats"></div>
         </div>
         <!-- TikTok -->
-        <div class="platform-card card-tiktok" onclick="selectPlatform('tiktok')">
+        <div class="platform-card card-tiktok loading-disabled" onclick="selectPlatform('tiktok')">
           <div class="platform-card-logo">
             <svg viewBox="0 0 24 24" fill="none">
               <path d="M16.6 5.82C15.56 4.94 14.88 3.62 14.75 2.15V2H11.17V15.58C11.17 17.07 9.96 18.28 8.47 18.28C6.98 18.28 5.77 17.07 5.77 15.58C5.77 14.09 6.98 12.88 8.47 12.88C8.76 12.88 9.04 12.92 9.3 13V9.36C9.03 9.32 8.75 9.3 8.47 9.3C5 9.3 2.19 12.11 2.19 15.58C2.19 19.05 5 21.86 8.47 21.86C11.94 21.86 14.75 19.05 14.75 15.58V8.64C16.05 9.61 17.67 10.18 19.42 10.18V6.6C18.36 6.6 17.39 6.3 16.6 5.82Z" fill="#69C9D0"/>
@@ -989,7 +1007,7 @@
           <div class="platform-card-stats" id="ttStats"></div>
         </div>
         <!-- Facebook -->
-        <div class="platform-card card-facebook" onclick="selectPlatform('facebook')">
+        <div class="platform-card card-facebook loading-disabled" onclick="selectPlatform('facebook')">
           <div class="platform-card-logo">
             <svg viewBox="0 0 24 24" fill="none">
               <path d="M12 2C6.477 2 2 6.477 2 12C2 16.991 5.657 21.128 10.438 21.879V14.89H7.898V12H10.438V9.797C10.438 7.291 11.93 5.907 14.215 5.907C15.309 5.907 16.453 6.102 16.453 6.102V8.562H15.193C13.95 8.562 13.563 9.333 13.563 10.124V12H16.336L15.893 14.89H13.563V21.879C18.343 21.129 22 16.99 22 12C22 6.477 17.523 2 12 2Z" fill="#1877F2"/>
@@ -1000,7 +1018,7 @@
           <div class="platform-card-stats" id="fbStats"></div>
         </div>
       </div>
-      <button class="platform-all-btn" onclick="selectPlatform('all')">
+      <button class="platform-all-btn loading-disabled" onclick="selectPlatform('all')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
         View All Platforms
       </button>
@@ -1104,8 +1122,10 @@
 
   // ====== PLATFORM SELECTOR ======
   let selectedPlatform = null;
+  let dataLoaded = false;
 
   function selectPlatform(platform) {
+    if (!dataLoaded) return; // Wait for API data before allowing platform selection
     selectedPlatform = platform;
     document.getElementById('filterPlatform').value = platform;
     document.getElementById('platformSelector').classList.remove('active');
@@ -1125,6 +1145,14 @@
     if (hideCompleted) {
       document.querySelectorAll('.ad-grid').forEach(g => g.classList.add('hide-completed'));
     }
+  }
+
+  function enablePlatformCards() {
+    dataLoaded = true;
+    document.querySelectorAll('.platform-card.loading-disabled, .platform-all-btn.loading-disabled').forEach(el => {
+      el.classList.remove('loading-disabled');
+    });
+    document.querySelector('.platform-cards')?.classList.add('data-ready');
   }
 
   function backToPlatforms() {
@@ -1276,6 +1304,7 @@
       updateTimestamp();
       const subEl2 = document.querySelector('.platform-selector-sub');
       if (subEl2) subEl2.textContent = 'Select a platform to view campaign performance';
+      enablePlatformCards();
       // Don't auto-apply filters — wait for platform selection
     } catch (err) {
       // If live data fails, try showing historical data from Supabase only
@@ -1289,6 +1318,7 @@
           populateFilters();
           updatePlatformStats();
           updateTimestamp();
+          enablePlatformCards();
           return;
         }
       } catch (e) { /* supabase also failed */ }
