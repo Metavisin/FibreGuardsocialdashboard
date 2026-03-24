@@ -1532,6 +1532,11 @@
     });
 
     c.innerHTML = h;
+
+    // Re-apply hide-completed state to freshly rendered grids
+    if (hideCompleted) {
+      document.querySelectorAll('.ad-grid').forEach(g => g.classList.add('hide-completed'));
+    }
   }
 
   function buildSection({type, title, sub, iconClass, icon, formula, chipClass, ads, scoreKey, metrics, summaryExtras}) {
@@ -1905,6 +1910,11 @@
     }
 
     c.innerHTML = h;
+
+    // Re-apply hide-completed state to freshly rendered grids
+    if (hideCompleted) {
+      document.querySelectorAll('.ad-grid').forEach(g => g.classList.add('hide-completed'));
+    }
   }
 
   // ====== SPARKLINE ======
