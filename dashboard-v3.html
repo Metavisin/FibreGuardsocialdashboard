@@ -1305,7 +1305,8 @@
       const subEl2 = document.querySelector('.platform-selector-sub');
       if (subEl2) subEl2.textContent = 'Select a platform to view campaign performance';
       enablePlatformCards();
-      // Don't auto-apply filters — wait for platform selection
+      // If already viewing a platform (e.g. Refresh was clicked), re-render the dashboard
+      if (selectedPlatform) applyFilters();
     } catch (err) {
       // If live data fails, try showing historical data from Supabase only
       try {
@@ -1319,6 +1320,7 @@
           updatePlatformStats();
           updateTimestamp();
           enablePlatformCards();
+          if (selectedPlatform) applyFilters();
           return;
         }
       } catch (e) { /* supabase also failed */ }
