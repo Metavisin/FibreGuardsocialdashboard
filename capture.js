@@ -52,6 +52,21 @@ function computeHourLabel(hours) {
   return (days * 24) + " hours";
 }
 
+async function retryWithBackoff(fn, { retries = 3, baseDelay = 2000, label = "API call" } = {}) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = err.response?.status;
+      const isRetryable = status >= 500 || status === 429 || err.code === "ECONNRESET" || err.code === "ETIMEDOUT";
+      if (!isRetryable || attempt === retries) throw err;
+      const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+      console.log(`⚠️  ${label} attempt ${attempt}/${retries} failed (${status || err.code}). Retrying in ${Math.round(delay / 1000)}s...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+}
+
 function objectiveToCampaignType(objective = "") {
   const obj = objective.toUpperCase();
   if (obj.includes("AWARENESS") || obj.includes("REACH") || obj.includes("VIDEO_VIEWS") || obj.includes("BRAND_AWARENESS")) return "awareness";
@@ -503,13 +518,13 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
 async function fetchActiveAds() {
   console.log("Fetching ads from Meta API...");
   const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;
-  const { data } = await axios.get(url, {
+  const { data } = await retryWithBackoff(() => axios.get(url, {
     params: {
       access_token: META_ACCESS_TOKEN,
       fields: "id,name,effective_status,configured_status,created_time,creative{id},campaign{id,name,objective,effective_status,budget_remaining,lifetime_budget,daily_budget,stop_time},adset{id,name,effective_status,budget_remaining,lifetime_budget,daily_budget,end_time}",
       limit: 200
     }
-  });
+  }), { label: "Meta Ads fetch" });
 
   const ads = data.data || [];
   const now = new Date();
@@ -558,7 +573,7 @@ async function fetchInsightsForAds(adIds) {
 
   console.log(`Fetching insights for ${adIds.length} ads...`);
   const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/insights`;
-  const { data } = await axios.get(url, {
+  const { data } = await retryWithBackoff(() => axios.get(url, {
     params: {
       access_token: META_ACCESS_TOKEN,
       fields: "campaign_name,campaign_id,adset_name,ad_name,ad_id,impressions,reach,cpm,spend,frequency,actions,cost_per_action_type,date_start,date_stop",
@@ -568,7 +583,7 @@ async function fetchInsightsForAds(adIds) {
       date_preset: "maximum",
       filtering: JSON.stringify([{ field: "ad.id", operator: "IN", value: adIds }])
     }
-  });
+  }), { label: "Meta Insights fetch" });
 
   return data.data || [];
 }
@@ -577,14 +592,14 @@ async function fetchThumbnails(adIds) {
   const thumbnails = {};
   try {
     const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;
-    const { data } = await axios.get(url, {
+    const { data } = await retryWithBackoff(() => axios.get(url, {
       params: {
         access_token: META_ACCESS_TOKEN,
         fields: "id,creative{id}",
         filtering: JSON.stringify([{ field: "id", operator: "IN", value: adIds }]),
         limit: 200
       }
-    });
+    }), { label: "Meta Thumbnails ads fetch" });
 
     const creativeToAds = {};
     for (const ad of (data.data || [])) {
@@ -596,7 +611,7 @@ async function fetchThumbnails(adIds) {
     }
 
     const creativesUrl = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/adcreatives`;
-    const { data: cData } = await axios.get(creativesUrl, {
+    const { data: cData } = await retryWithBackoff(() => axios.get(creativesUrl, {
       params: {
         access_token: META_ACCESS_TOKEN,
         fields: "id,thumbnail_url,image_url",
@@ -604,7 +619,7 @@ async function fetchThumbnails(adIds) {
         thumbnail_height: 600,
         limit: 100
       }
-    });
+    }), { label: "Meta Creatives fetch" });
 
     for (const creative of (cData.data || [])) {
       const thumbUrl = creative.thumbnail_url || creative.image_url || null;
