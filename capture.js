@@ -60,8 +60,9 @@ async function retryWithBackoff(fn, { retries = 3, baseDelay = 2000, label = "AP
       const status = err.response?.status;
       const isRetryable = status >= 500 || status === 429 || err.code === "ECONNRESET" || err.code === "ETIMEDOUT";
       if (!isRetryable || attempt === retries) throw err;
+      const detail = err.response?.data?.error?.message || err.response?.data?.error_user_msg || "";
       const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
-      console.log(`⚠️  ${label} attempt ${attempt}/${retries} failed (${status || err.code}). Retrying in ${Math.round(delay / 1000)}s...`);
+      console.log(`⚠️  ${label} attempt ${attempt}/${retries} failed (${status || err.code}${detail ? ": " + detail : ""}). Retrying in ${Math.round(delay / 1000)}s...`);
       await new Promise(r => setTimeout(r, delay));
     }
   }
@@ -1000,5 +1001,9 @@ run()
   })
   .catch(err => {
     console.error("\n❌ Capture failed:", err.message);
+    if (err.response) {
+      console.error("Status:", err.response.status);
+      console.error("Response:", JSON.stringify(err.response.data, null, 2));
+    }
     process.exit(1);
   });
