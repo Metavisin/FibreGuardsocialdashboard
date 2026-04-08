@@ -826,7 +826,8 @@ async function fetchTikTokInsights(token, adIds) {
   const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
   // Extended metrics include engagement + video data
-  const extendedMetrics = ["spend", "impressions", "clicks", "reach", "likes", "shares", "comments", "favorites", "video_watched_2s", "video_play_actions"];
+  // Note: "favorites" is NOT a valid TikTok reporting metric (causes error 40002), so we omit it
+  const extendedMetrics = ["spend", "impressions", "clicks", "reach", "likes", "shares", "comments", "video_watched_2s", "video_play_actions"];
   const basicMetrics = ["spend", "impressions", "clicks"];
 
   async function fetchWithMetrics(metricsArray) {
@@ -960,7 +961,7 @@ function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignSta
     const ttLikes = safeNumber(metrics.likes);
     const ttComments = safeNumber(metrics.comments);
     const ttShares = safeNumber(metrics.shares);
-    const ttFavorites = safeNumber(metrics.favorites); // TikTok's equivalent of "saves"
+    const ttFavorites = 0; // TikTok "favorites" metric is not available in reporting API
     const landingPageViews = safeNumber(metrics.landing_page_view) || clicks;
     const viewRate = impressions > 0 ? round((video2s / impressions) * 100) : 0;
     const lpvr = clicks > 0 ? round(landingPageViews / clicks, 4) : 0;
@@ -2056,7 +2057,7 @@ app.get("/debug/tiktok", async (req, res) => {
         params: {
           advertiser_id: token.advertiser_id, report_type: "BASIC",
           data_level: "AUCTION_AD", dimensions: JSON.stringify(["ad_id"]),
-          metrics: JSON.stringify(["spend", "impressions", "clicks", "reach", "likes", "shares", "comments", "favorites", "video_watched_2s", "video_play_actions"]),
+          metrics: JSON.stringify(["spend", "impressions", "clicks", "reach", "likes", "shares", "comments", "video_watched_2s", "video_play_actions"]),
           start_date: startDate, end_date: endDate,
           page_size: 200, page: 1
         },

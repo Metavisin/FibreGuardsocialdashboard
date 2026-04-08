@@ -248,7 +248,8 @@ async function fetchTikTokInsights(token, adIds) {
   const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
   // Try extended metrics first (engagement + video), fall back to basic 3 if it fails
-  const extendedMetrics = ["spend", "impressions", "clicks", "reach", "likes", "shares", "comments", "favorites", "video_watched_2s", "video_play_actions"];
+  // Note: "favorites" is NOT a valid TikTok reporting metric (causes error 40002), so we omit it
+  const extendedMetrics = ["spend", "impressions", "clicks", "reach", "likes", "shares", "comments", "video_watched_2s", "video_play_actions"];
   const basicMetrics = ["spend", "impressions", "clicks"];
 
   async function fetchWithMetrics(metricsArray) {
@@ -475,7 +476,7 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
     const ttLikes = safeNumber(m.likes);
     const ttComments = safeNumber(m.comments);
     const ttShares = safeNumber(m.shares);
-    const ttFavorites = safeNumber(m.favorites); // TikTok's equivalent of "saves"
+    const ttFavorites = 0; // TikTok "favorites" metric is not available in reporting API
     const ttVideoViews = safeNumber(m.video_play_actions);
     const ttVideo2s = safeNumber(m.video_watched_2s); // TikTok uses 2-second views
     const ttVideoViewRate = impressions > 0 ? round((ttVideo2s / impressions) * 100) : 0;
