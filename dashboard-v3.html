@@ -1437,6 +1437,14 @@
       const bPriority = b.ad_status === 'COMPLETED' ? 3 : b.ad_status === 'PAUSED' ? 2 : b.ad_status === 'NEW' ? 0 : 1;
       if (aPriority !== bPriority) return aPriority - bPriority;
 
+      // Completed ads: sort by launch date (most recent first)
+      if (aPriority === 3) {
+        const aDate = a.ad_created_time ? new Date(a.ad_created_time).getTime() : 0;
+        const bDate = b.ad_created_time ? new Date(b.ad_created_time).getTime() : 0;
+        return bDate - aDate;
+      }
+
+      // Active/other ads: sort by score or selected metric
       const sa = a._score ?? -1;
       const sb = b._score ?? -1;
       switch(sort) {
