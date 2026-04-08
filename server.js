@@ -1953,6 +1953,166 @@ app.get("/migrate", async (req, res) => {
   }
 });
 
+// ====== TIKTOK DEBUG ENDPOINT ======
+// Diagnostic endpoint to troubleshoot TikTok API data issues
+app.get("/debug/tiktok", async (req, res) => {
+  const debug = { timestamp: new Date().toISOString(), steps: [] };
+  try {
+    // Step 1: Check token
+    const token = await getTikTokToken();
+    if (!token) {
+      debug.steps.push({ step: "token", status: "FAIL", message: "No TikTok token found in Supabase" });
+      return res.json(debug);
+    }
+    debug.steps.push({
+      step: "token", status: "OK",
+      advertiser_id: token.advertiser_id,
+      token_preview: token.access_token ? token.access_token.substring(0, 20) + "..." : "missing"
+    });
+
+    // Step 2: Fetch campaigns
+    const campaignData = await fetchTikTokCampaigns(token);
+    const { campaignObjectiveMap = {}, campaignStatusMap = {} } = campaignData;
+    const campaignList = Object.entries(campaignObjectiveMap).map(([id, obj]) => ({
+      campaign_id: id, objective: obj, status: campaignStatusMap[id] || "unknown"
+    }));
+    debug.steps.push({ step: "campaigns", status: "OK", count: campaignList.length, campaigns: campaignList });
+
+    // Step 3: Fetch ads
+    const ads = await fetchTikTokAds(token);
+    const adSummary = ads.slice(0, 30).map(a => ({
+      ad_id: a.ad_id, ad_name: a.ad_name || a.ad_text || "",
+      campaign_name: a.campaign_name || "", campaign_id: a.campaign_id || "",
+      primary_status: a._primary_status || a.primary_status || "",
+      secondary_status: a.secondary_status || "",
+      operation_status: a.operation_status || ""
+    }));
+    debug.steps.push({ step: "ads", status: "OK", total: ads.length, sample: adSummary });
+
+    // Step 4: Search for the specific missing ads
+    const searchTerms = ["juice", "sofa", "spring", "morning", "chenelle", "performance"];
+    const matchingAds = ads.filter(a => {
+      const text = `${a.ad_name || ""} ${a.ad_text || ""} ${a.campaign_name || ""}`.toLowerCase();
+      return searchTerms.some(t => text.includes(t));
+    }).map(a => ({
+      ad_id: a.ad_id, ad_name: a.ad_name || a.ad_text || "",
+      campaign_name: a.campaign_name || "", campaign_id: a.campaign_id || "",
+      primary_status: a._primary_status || a.primary_status || "",
+      secondary_status: a.secondary_status || "",
+      create_time: a.create_time || ""
+    }));
+    debug.steps.push({ step: "search_specific_ads", found: matchingAds.length, ads: matchingAds });
+
+    // Step 5: Fetch insights and check for non-zero spend
+    const adIds = ads.map(a => a.ad_id);
+    const endDate = new Date().toISOString().split("T")[0];
+    const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+    // Try basic metrics directly
+    let insightRows = [];
+    try {
+      const insightRes = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
+        params: {
+          advertiser_id: token.advertiser_id, report_type: "BASIC",
+          data_level: "AUCTION_AD", dimensions: JSON.stringify(["ad_id"]),
+          metrics: JSON.stringify(["spend", "impressions", "clicks"]),
+          start_date: startDate, end_date: endDate,
+          page_size: 200, page: 1
+        },
+        headers: { "Access-Token": token.access_token }
+      });
+      insightRows = res.data?.data?.list || [];
+      const code = insightRes.data?.code;
+      const total = insightRes.data?.data?.page_info?.total_number;
+      insightRows = insightRes.data?.data?.list || [];
+
+      // Find rows with non-zero spend
+      const withSpend = insightRows.filter(r => safeNumber(r.metrics?.spend) > 0);
+      const withImpressions = insightRows.filter(r => safeNumber(r.metrics?.impressions) > 0);
+
+      debug.steps.push({
+        step: "insights_basic", status: code === 0 ? "OK" : "ERROR",
+        api_code: code, api_message: insightRes.data?.message,
+        date_range: `${startDate} to ${endDate}`,
+        total_rows: total, returned_rows: insightRows.length,
+        rows_with_spend: withSpend.length,
+        rows_with_impressions: withImpressions.length,
+        spend_samples: withSpend.slice(0, 10).map(r => ({
+          ad_id: r.dimensions?.ad_id, spend: r.metrics?.spend,
+          impressions: r.metrics?.impressions, clicks: r.metrics?.clicks
+        }))
+      });
+    } catch (insightErr) {
+      debug.steps.push({
+        step: "insights_basic", status: "ERROR",
+        message: insightErr.message,
+        response_data: insightErr.response?.data
+      });
+    }
+
+    // Step 6: Try extended metrics
+    try {
+      const extRes = await axios.get("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
+        params: {
+          advertiser_id: token.advertiser_id, report_type: "BASIC",
+          data_level: "AUCTION_AD", dimensions: JSON.stringify(["ad_id"]),
+          metrics: JSON.stringify(["spend", "impressions", "clicks", "reach", "likes", "shares", "comments", "favorites", "video_watched_2s", "video_play_actions"]),
+          start_date: startDate, end_date: endDate,
+          page_size: 200, page: 1
+        },
+        headers: { "Access-Token": token.access_token }
+      });
+      debug.steps.push({
+        step: "insights_extended", status: extRes.data?.code === 0 ? "OK" : "ERROR",
+        api_code: extRes.data?.code, api_message: extRes.data?.message,
+        returned_rows: (extRes.data?.data?.list || []).length
+      });
+    } catch (extErr) {
+      debug.steps.push({
+        step: "insights_extended", status: "ERROR",
+        message: extErr.message,
+        response_data: extErr.response?.data
+      });
+    }
+
+    // Step 7: Check Supabase for any existing TikTok snapshots
+    const { data: ttSnapshots, error: snapErr } = await supabase
+      .from("ad_snapshots")
+      .select("ad_id, ad_name, campaign_name, campaign_type, spend, impressions, ad_status, captured_at, publisher_platform")
+      .eq("publisher_platform", "tiktok")
+      .order("captured_at", { ascending: false })
+      .limit(20);
+    debug.steps.push({
+      step: "supabase_tiktok_snapshots", status: snapErr ? "ERROR" : "OK",
+      error: snapErr?.message,
+      count: (ttSnapshots || []).length,
+      snapshots: (ttSnapshots || []).slice(0, 20)
+    });
+
+    // Step 8: Check tiktok_tokens table
+    const { data: tokenData, error: tokenErr } = await supabase
+      .from("tiktok_tokens")
+      .select("*")
+      .limit(5);
+    debug.steps.push({
+      step: "tiktok_tokens_table", status: tokenErr ? "ERROR" : "OK",
+      count: (tokenData || []).length,
+      tokens: (tokenData || []).map(t => ({
+        advertiser_id: t.advertiser_id,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+        expires_at: t.expires_at,
+        token_preview: t.access_token ? t.access_token.substring(0, 20) + "..." : "missing"
+      }))
+    });
+
+    res.json(debug);
+  } catch (err) {
+    debug.steps.push({ step: "fatal_error", message: err.message, stack: err.stack?.split("\n").slice(0, 3) });
+    res.json(debug);
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
