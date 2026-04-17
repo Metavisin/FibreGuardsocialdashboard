@@ -518,22 +518,46 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
 // ====== META API ======
 
 async function fetchActiveAds() {
-  console.log("Fetching ads from Meta API...");
-  const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;
-  const { data } = await retryWithBackoff(() => axios.get(url, {
+  console.log("Fetching active ads from Meta API...");
+  const baseUrl = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;
+  let allAds = [];
+  let nextUrl = null;
+
+  // First request — filter server-side for ACTIVE ads so we don't waste the limit on inactive ones
+  const { data } = await retryWithBackoff(() => axios.get(baseUrl, {
     params: {
       access_token: META_ACCESS_TOKEN,
       fields: "id,name,effective_status,configured_status,created_time,creative{id},campaign{id,name,objective,effective_status,budget_remaining,lifetime_budget,daily_budget,stop_time},adset{id,name,effective_status,budget_remaining,lifetime_budget,daily_budget,end_time}",
+      filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
       limit: 200
     }
   }), { label: "Meta Ads fetch" });
 
-  const ads = data.data || [];
+  allAds = data.data || [];
+  nextUrl = data.paging?.next || null;
+
+  // Paginate to get ALL active ads (not just first 200)
+  let pageNum = 1;
+  while (nextUrl) {
+    pageNum++;
+    try {
+      const { data: pageData } = await retryWithBackoff(() => axios.get(nextUrl), { label: `Meta Ads page ${pageNum}` });
+      const rows = pageData.data || [];
+      if (rows.length === 0) break;
+      allAds = allAds.concat(rows);
+      nextUrl = pageData.paging?.next || null;
+    } catch (err) {
+      console.warn(`Failed to fetch ads page ${pageNum}:`, err.message);
+      break;
+    }
+  }
+
+  console.log(`Fetched ${allAds.length} ads with effective_status=ACTIVE across ${pageNum} page(s)`);
+
   const now = new Date();
   const activeAds = [];
 
-  for (const ad of ads) {
-    const adEffective = ad.effective_status || "UNKNOWN";
+  for (const ad of allAds) {
     const campaignEffective = ad.campaign?.effective_status || "UNKNOWN";
     const adsetEffective = ad.adset?.effective_status || "UNKNOWN";
     const campaignBudgetRemaining = parseFloat(ad.campaign?.budget_remaining || "-1");
@@ -543,9 +567,7 @@ async function fetchActiveAds() {
     const campaignStopTime = ad.campaign?.stop_time ? new Date(ad.campaign.stop_time) : null;
     const adsetEndTime = ad.adset?.end_time ? new Date(ad.adset.end_time) : null;
 
-    let isActive = adEffective === "ACTIVE" &&
-      campaignEffective === "ACTIVE" &&
-      adsetEffective === "ACTIVE";
+    let isActive = campaignEffective === "ACTIVE" && adsetEffective === "ACTIVE";
 
     // Check budget exhaustion
     if (isActive && campaignLifetime > 0 && campaignBudgetRemaining === 0) isActive = false;
@@ -563,10 +585,12 @@ async function fetchActiveAds() {
         campaign_objective: ad.campaign?.objective || "",
         adset_name: ad.adset?.name || ""
       });
+    } else {
+      console.log(`Ad "${ad.name}" skipped: campaign=${campaignEffective}, adset=${adsetEffective}, budgetRemaining=${campaignBudgetRemaining}/${adsetBudgetRemaining}`);
     }
   }
 
-  console.log(`Found ${ads.length} total ads, ${activeAds.length} actively delivering`);
+  console.log(`Found ${activeAds.length} actively delivering ads (after campaign/adset/budget checks)`);
   return activeAds;
 }
 

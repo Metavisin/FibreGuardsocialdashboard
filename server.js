@@ -352,8 +352,11 @@ async function fetchAdDetails() {
   const statuses = {};      // ad_id -> computed delivery status
   const createdTimes = {};  // ad_id -> created_time ISO string
   try {
-    // Step 1: Get ads with campaign + adset details to determine true delivery status
+    // Step 1: Get ALL ads with campaign + adset details (paginated)
     const adsUrl = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;
+    let allAds = [];
+    let nextUrl = null;
+
     const { data: adsData } = await axios.get(adsUrl, {
       params: {
         access_token: META_ACCESS_TOKEN,
@@ -362,8 +365,27 @@ async function fetchAdDetails() {
       }
     });
 
-    const ads = adsData.data || [];
-    console.log(`Found ${ads.length} ads from Meta`);
+    allAds = adsData.data || [];
+    nextUrl = adsData.paging?.next || null;
+
+    // Paginate to get ALL ads
+    let pageNum = 1;
+    while (nextUrl) {
+      pageNum++;
+      try {
+        const { data: pageData } = await axios.get(nextUrl);
+        const rows = pageData.data || [];
+        if (rows.length === 0) break;
+        allAds = allAds.concat(rows);
+        nextUrl = pageData.paging?.next || null;
+      } catch (err) {
+        console.warn(`Failed to fetch ads page ${pageNum}:`, err.message);
+        break;
+      }
+    }
+
+    const ads = allAds;
+    console.log(`Found ${ads.length} ads from Meta (${pageNum} page(s))`);
 
     // Build creative_id -> [ad_ids] mapping and compute delivery status
     const creativeToAds = {};
