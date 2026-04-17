@@ -1370,6 +1370,25 @@
     if (currentView === 'latest') {
       // Use live data from Meta API (real-time)
       filtered = [...liveData];
+      // Merge scores from Supabase historical data into live data
+      // Build a lookup: ad_id → most recent scored snapshot
+      const scoreMap = {};
+      for (const d of allData) {
+        if (d.score == null) continue;
+        const key = `${d.ad_id}__${d.publisher_platform}`;
+        if (!scoreMap[key] || new Date(d.captured_at) > new Date(scoreMap[key].captured_at)) {
+          scoreMap[key] = d;
+        }
+      }
+      for (const d of filtered) {
+        const key = `${d.ad_id}__${d.publisher_platform}`;
+        const scored = scoreMap[key];
+        if (scored) {
+          d.score = scored.score;
+          d.benchmark = scored.benchmark;
+          d.boost = scored.boost;
+        }
+      }
       updateTimestamp();
     } else {
       // Time window: fetch snapshot from Supabase via server endpoint
