@@ -563,12 +563,22 @@ app.get("/fix-campaign-types", async (req, res) => {
   try {
     const { objectives, objectivesById } = await fetchCampaignInfo();
 
-    const { data: snapshots, error: fetchErr } = await supabase
-      .from("ad_snapshots")
-      .select("id, campaign_name, campaign_id, campaign_type, publisher_platform")
-      .order("id", { ascending: true });
-
-    if (fetchErr) throw fetchErr;
+    // Fetch ALL snapshots (Supabase defaults to 1000 rows, so paginate)
+    let snapshots = [];
+    let from = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from("ad_snapshots")
+        .select("id, campaign_name, campaign_id, campaign_type, publisher_platform")
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      snapshots = snapshots.concat(data);
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
 
     let updated = 0;
     let skipped = 0;
