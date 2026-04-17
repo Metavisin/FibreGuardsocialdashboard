@@ -474,6 +474,71 @@ app.get("/debug-campaigns", async (req, res) => {
   }
 });
 
+// One-time fix: update campaign_type for all existing Supabase snapshots
+// Uses the full campaign objective map from Meta to correct misclassified ads
+app.get("/fix-campaign-types", async (req, res) => {
+  try {
+    const { objectives } = await fetchCampaignInfo();
+
+    // Get all unique campaign names from Supabase snapshots
+    const { data: snapshots, error: fetchErr } = await supabase
+      .from("ad_snapshots")
+      .select("id, campaign_name, campaign_type, publisher_platform")
+      .order("id", { ascending: true });
+
+    if (fetchErr) throw fetchErr;
+
+    let updated = 0;
+    let skipped = 0;
+    const changes = [];
+
+    for (const snap of snapshots) {
+      const platform = (snap.publisher_platform || "").toLowerCase();
+      let correctType = null;
+
+      if (platform === "tiktok") {
+        // Skip TikTok — handled separately
+        skipped++;
+        continue;
+      }
+
+      // Use Meta objective to determine correct type
+      const apiObjective = objectives[snap.campaign_name] || "";
+      correctType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(snap.campaign_name, "");
+
+      if (correctType && correctType !== snap.campaign_type) {
+        const { error: updateErr } = await supabase
+          .from("ad_snapshots")
+          .update({ campaign_type: correctType })
+          .eq("id", snap.id);
+
+        if (!updateErr) {
+          updated++;
+          changes.push({
+            id: snap.id,
+            campaign_name: snap.campaign_name,
+            old_type: snap.campaign_type,
+            new_type: correctType,
+            objective: apiObjective
+          });
+        }
+      } else {
+        skipped++;
+      }
+    }
+
+    res.json({
+      total_snapshots: snapshots.length,
+      updated,
+      skipped,
+      objectives,
+      changes: changes.slice(0, 50) // Show first 50 changes
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message, stack: err.stack });
+  }
+});
+
 app.get("/debug-creatives", async (req, res) => {
   try {
     const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/ads`;

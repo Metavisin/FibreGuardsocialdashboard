@@ -570,6 +570,42 @@ async function fetchActiveAds() {
   return activeAds;
 }
 
+// Fetch ALL campaign objectives (including completed campaigns)
+// This ensures we always know the correct campaign_type, even for finished ads
+async function fetchAllCampaignObjectives() {
+  const objectiveMap = {};
+  try {
+    let url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/campaigns`;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data } = await retryWithBackoff(() => axios.get(url, {
+        params: {
+          access_token: META_ACCESS_TOKEN,
+          fields: "id,name,objective,status",
+          limit: 200
+        }
+      }), { label: "Meta Campaigns fetch" });
+
+      for (const campaign of (data.data || [])) {
+        objectiveMap[campaign.name] = campaign.objective || "";
+        console.log(`Campaign: "${campaign.name}" → objective: ${campaign.objective}, status: ${campaign.status}`);
+      }
+
+      if (data.paging?.next) {
+        url = data.paging.next;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    console.log(`Loaded objectives for ${Object.keys(objectiveMap).length} campaigns (all statuses)`);
+  } catch (err) {
+    console.warn("Failed to fetch campaign objectives (non-blocking):", err.message);
+  }
+  return objectiveMap;
+}
+
 async function fetchInsightsForAds(adIds) {
   if (adIds.length === 0) return [];
 
@@ -789,17 +825,12 @@ async function run() {
     console.log(`Marked ${nowInactiveIds.length} ads as inactive`);
   }
 
-  // 4. Fetch insights for ALL active ads — we need data to decide what to capture
-  const [allInsightsRows, allThumbnails] = await Promise.all([
+  // 4. Fetch insights, thumbnails, AND all campaign objectives in parallel
+  const [allInsightsRows, allThumbnails, objectiveMap] = await Promise.all([
     fetchInsightsForAds(activeAdIds),
-    fetchThumbnails(activeAdIds)
+    fetchThumbnails(activeAdIds),
+    fetchAllCampaignObjectives()
   ]);
-
-  // 5. Build campaign objective map from active ads
-  const objectiveMap = {};
-  for (const ad of activeAds) {
-    objectiveMap[ad.campaign_name] = ad.campaign_objective;
-  }
 
   // 6. Process insights into snapshot rows (all ads with data)
   const grouped = new Map();
@@ -816,6 +847,7 @@ async function run() {
     const key = `${item.campaign_name}__${item.ad_name}__${platform}`;
     const apiObjective = objectiveMap[item.campaign_name] || "";
     const campaignType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(item.campaign_name, item.ad_name);
+    console.log(`Meta ad "${item.ad_name}" (${platform}): campaign="${item.campaign_name}", objective="${apiObjective}" → type=${campaignType}`);
     const adCreated = activeAds.find(a => a.ad_id === item.ad_id)?.created_time || null;
 
     const existing = grouped.get(key) || {
