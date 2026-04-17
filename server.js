@@ -231,9 +231,10 @@ function computeAbsoluteScores(rows) {
 // ====== META API FUNCTIONS ======
 
 // Fetch campaign objectives AND budgets from Meta
-// Returns { objectives: { campaign_name -> objective }, budgets: { campaign_id -> { daily_budget, lifetime_budget } } }
+// Returns { objectives: { campaign_name -> objective }, objectivesById: { campaign_id -> objective }, budgets: { campaign_id -> { daily_budget, lifetime_budget } } }
 async function fetchCampaignInfo() {
   const objectiveMap = {};  // campaign_name -> objective string
+  const objectiveByIdMap = {};  // campaign_id -> objective string (reliable even after renames)
   const campaignBudgets = {}; // campaign_id -> { daily_budget, lifetime_budget }
   try {
     let url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/campaigns`;
@@ -250,11 +251,12 @@ async function fetchCampaignInfo() {
 
       for (const campaign of (data.data || [])) {
         objectiveMap[campaign.name] = campaign.objective || "";
+        objectiveByIdMap[campaign.id] = campaign.objective || "";
         campaignBudgets[campaign.id] = {
           daily_budget: safeNumber(campaign.daily_budget) / 100, // Meta returns cents
           lifetime_budget: safeNumber(campaign.lifetime_budget) / 100
         };
-        console.log(`Campaign: "${campaign.name}" → objective: ${campaign.objective}, status: ${campaign.status}, lifetime_budget: ${campaign.lifetime_budget}, daily_budget: ${campaign.daily_budget}`);
+        console.log(`Campaign: "${campaign.name}" (${campaign.id}) → objective: ${campaign.objective}, status: ${campaign.status}`);
       }
 
       if (data.paging?.next) {
@@ -268,7 +270,7 @@ async function fetchCampaignInfo() {
   } catch (err) {
     console.warn("Failed to fetch campaign info (non-blocking):", err.message);
   }
-  return { objectives: objectiveMap, budgets: campaignBudgets };
+  return { objectives: objectiveMap, objectivesById: objectiveByIdMap, budgets: campaignBudgets };
 }
 
 // Fetch adset budgets (budgets are often set at adset level, not campaign level)
@@ -475,15 +477,15 @@ app.get("/debug-campaigns", async (req, res) => {
 });
 
 // One-time fix: update campaign_type for all existing Supabase snapshots
-// Uses the full campaign objective map from Meta to correct misclassified ads
+// Uses both campaign_id and campaign_name to look up objectives (handles renamed campaigns)
 app.get("/fix-campaign-types", async (req, res) => {
   try {
-    const { objectives } = await fetchCampaignInfo();
+    const { objectives, objectivesById } = await fetchCampaignInfo();
 
-    // Get all unique campaign names from Supabase snapshots
+    // Get all snapshots with campaign_id for reliable matching
     const { data: snapshots, error: fetchErr } = await supabase
       .from("ad_snapshots")
-      .select("id, campaign_name, campaign_type, publisher_platform")
+      .select("id, campaign_name, campaign_id, campaign_type, publisher_platform")
       .order("id", { ascending: true });
 
     if (fetchErr) throw fetchErr;
@@ -494,17 +496,17 @@ app.get("/fix-campaign-types", async (req, res) => {
 
     for (const snap of snapshots) {
       const platform = (snap.publisher_platform || "").toLowerCase();
-      let correctType = null;
 
       if (platform === "tiktok") {
-        // Skip TikTok — handled separately
         skipped++;
         continue;
       }
 
-      // Use Meta objective to determine correct type
-      const apiObjective = objectives[snap.campaign_name] || "";
-      correctType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(snap.campaign_name, "");
+      // Try campaign_id first (reliable even after renames), then fall back to name
+      const apiObjective = (snap.campaign_id && objectivesById[snap.campaign_id])
+        || objectives[snap.campaign_name]
+        || "";
+      const correctType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(snap.campaign_name, "");
 
       if (correctType && correctType !== snap.campaign_type) {
         const { error: updateErr } = await supabase
@@ -517,6 +519,7 @@ app.get("/fix-campaign-types", async (req, res) => {
           changes.push({
             id: snap.id,
             campaign_name: snap.campaign_name,
+            campaign_id: snap.campaign_id,
             old_type: snap.campaign_type,
             new_type: correctType,
             objective: apiObjective
@@ -532,7 +535,7 @@ app.get("/fix-campaign-types", async (req, res) => {
       updated,
       skipped,
       objectives,
-      changes: changes.slice(0, 50) // Show first 50 changes
+      changes: changes.slice(0, 100)
     });
   } catch (err) {
     res.status(500).json({ error: err.message, stack: err.stack });
