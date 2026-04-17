@@ -5,6 +5,7 @@ import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 import path from "path";
 import { fileURLToPath } from "url";
+import { scoreUnscoredRows } from "./scoring.js";
 
 dotenv.config();
 
@@ -502,6 +503,29 @@ app.get("/debug-campaigns", async (req, res) => {
 // One endpoint to fix everything in Supabase:
 // 1. Check/report if video_2s columns exist
 // 2. Delete all data before April 2026
+// ====== SCORING ENDPOINT ======
+// Backfill scores for all unscored rows (score IS NULL) for TikTok and Instagram
+app.get("/score", async (req, res) => {
+  try {
+    console.log("Starting score backfill...");
+    const dryRun = req.query.dry === "true";
+    const limit = parseInt(req.query.limit) || 5000;
+
+    const result = await scoreUnscoredRows(supabase, { dryRun, limit });
+
+    res.json({
+      status: "OK",
+      dryRun,
+      ...result,
+      warningCount: result.warnings.length,
+      warnings: result.warnings.slice(0, 50) // Cap warnings in response
+    });
+  } catch (err) {
+    console.error("Score endpoint error:", err.message);
+    res.status(500).json({ status: "ERROR", message: err.message });
+  }
+});
+
 // 3. Fix campaign_types: TikTok=reach/community, Instagram=awareness/engagement
 // 4. Backfill video_2s data from old video_3s columns for TikTok records
 app.get("/cleanup", async (req, res) => {

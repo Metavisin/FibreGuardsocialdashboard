@@ -13,6 +13,7 @@
 
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
+import { scoreNewRow } from "./scoring.js";
 
 // ====== CONFIG ======
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
@@ -985,7 +986,7 @@ async function run() {
 
   // 8. Insert into Supabase
   if (rowsToInsert.length > 0) {
-    const { error } = await supabase.from("ad_snapshots").insert(rowsToInsert);
+    const { data: insertedRows, error } = await supabase.from("ad_snapshots").insert(rowsToInsert).select("id, ad_id, captured_at, snapshot_hours, publisher_platform, campaign_type, impressions, reach, cpm, video_2s_views, video_2s_view_rate, video_3s_views, video_3s_view_rate, likes, comments, shares, saves");
     if (error) {
       console.error(`❌ Meta insert failed:`, error.message);
       throw error;
@@ -995,6 +996,25 @@ async function run() {
     const capturedAdIds = [...new Set(rowsToInsert.map(r => r.ad_id))];
     for (const adId of capturedAdIds) {
       await incrementSnapshotCount(adId);
+    }
+
+    // Score each newly inserted row (peer-relative scoring)
+    if (insertedRows && insertedRows.length > 0) {
+      console.log(`\n📊 Scoring ${insertedRows.length} Meta snapshot rows...`);
+      let scoreCount = 0;
+      for (const row of insertedRows) {
+        if (row.snapshot_hours > 48) continue; // Cap at 48h per spec
+        try {
+          const result = await scoreNewRow(supabase, row);
+          if (result.score !== null) {
+            scoreCount++;
+            console.log(`  ✅ ${row.ad_id} h${row.snapshot_hours}: score=${result.score}, benchmark=${result.benchmark}, boost=${result.boost}`);
+          }
+        } catch (err) {
+          console.warn(`  ⚠️ Scoring failed for ${row.ad_id}:`, err.message);
+        }
+      }
+      console.log(`📊 Meta scoring complete: ${scoreCount}/${insertedRows.length} rows scored`);
     }
   }
 
@@ -1060,13 +1080,32 @@ async function run() {
         }
 
         if (ttRowsToInsert.length > 0) {
-          const { error: ttErr } = await supabase.from("ad_snapshots").insert(ttRowsToInsert);
+          const { data: ttInsertedRows, error: ttErr } = await supabase.from("ad_snapshots").insert(ttRowsToInsert).select("id, ad_id, captured_at, snapshot_hours, publisher_platform, campaign_type, impressions, reach, cpm, video_2s_views, video_2s_view_rate, video_3s_views, video_3s_view_rate, likes, comments, shares, saves");
           if (ttErr) {
             console.warn("TikTok snapshot insert failed:", ttErr.message);
           } else {
             tikTokCaptured = ttRowsToInsert.length;
             for (const adId of [...new Set(ttRowsToInsert.map(r => r.ad_id))]) {
               await incrementSnapshotCount(adId);
+            }
+
+            // Score each newly inserted TikTok row
+            if (ttInsertedRows && ttInsertedRows.length > 0) {
+              console.log(`\n📊 Scoring ${ttInsertedRows.length} TikTok snapshot rows...`);
+              let ttScoreCount = 0;
+              for (const row of ttInsertedRows) {
+                if (row.snapshot_hours > 48) continue;
+                try {
+                  const result = await scoreNewRow(supabase, row);
+                  if (result.score !== null) {
+                    ttScoreCount++;
+                    console.log(`  ✅ ${row.ad_id} h${row.snapshot_hours}: score=${result.score}, benchmark=${result.benchmark}, boost=${result.boost}`);
+                  }
+                } catch (err) {
+                  console.warn(`  ⚠️ Scoring failed for ${row.ad_id}:`, err.message);
+                }
+              }
+              console.log(`📊 TikTok scoring complete: ${ttScoreCount}/${ttInsertedRows.length} rows scored`);
             }
           }
         }

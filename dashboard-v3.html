@@ -1177,8 +1177,7 @@
       const container = document.getElementById(el);
       if (!container) continue;
       const live = ads.filter(d => d.ad_status === 'ACTIVE').length;
-      // Boost is TBD until scoring formula is finalized — hardcoded to 0
-      const boost = 0;
+      const boost = ads.filter(d => d.boost === true).length;
       container.innerHTML = `
         <div class="platform-card-stat">
           <div class="platform-card-stat-value" style="color:var(--green)">${live}</div>
@@ -1210,48 +1209,34 @@
   // Detect the base URL for server endpoints (same origin as the page)
   const SERVER_BASE = window.location.origin;
 
-  // ====== ABSOLUTE SCORING (CLIENT-SIDE) ======
-  // Each ad scored independently — no comparison to other ads, no cap.
-  // ====== TARGET-BASED SCORING (Variant B) ======
-  // Score = 100 means on target. Each component capped at 2.0, max = 200 pts.
-  const TARGETS = {
-    awareness: { reach: 400000, cpm: 0.07, viewRate: 15 },
-    engagement: { shareRate: 2.0, saveRate: 3.0, commentRate: 1.5, likeRate: 20.0 },
-    traffic: { ctr: 1.0, cpc: 0.007, lpvr: 0.70, frequency: 2.0 }
-  };
+  // ====== PEER-RELATIVE SCORING (SERVER-SIDE) ======
+  // Scores are computed server-side via min-max normalization against a peer pool
+  // of 15 most recent ads at the same snapshot_hours, same bucket.
+  // Score: 0-100 (peer-relative), Benchmark: 70th percentile of peers, Boost: score > benchmark
+  // The dashboard reads score/benchmark/boost directly from Supabase columns.
 
   function recalcScores(ads) {
     for (const d of ads) {
-      if (d.campaign_type === 'awareness' || d.campaign_type === 'reach') {
-        const reachR = Math.min(TARGETS.awareness.reach > 0 ? (d.reach||0) / TARGETS.awareness.reach : 0, 2.0);
-        const cpmR = Math.min((d.cpm||0) > 0 ? TARGETS.awareness.cpm / d.cpm : 0, 2.0);
-        const viewR = Math.min(TARGETS.awareness.viewRate > 0 ? getViewRate(d) / TARGETS.awareness.viewRate : 0, 2.0);
-        d._score = Math.round((0.40 * reachR + 0.40 * cpmR + 0.20 * viewR) * 100);
-      } else if (d.campaign_type === 'engagement' || d.campaign_type === 'community') {
-        const reach1k = (d.reach||0) > 0 ? d.reach / 1000 : 0.001;
-        const shareRate = (d.shares||0) / reach1k;
-        const saveRate = (d.saves||0) / reach1k;
-        const commentRate = (d.comments||0) / reach1k;
-        const likeRate = (d.likes||0) / reach1k;
-        const raw = 0.40 * Math.min(shareRate / TARGETS.engagement.shareRate, 2.0) +
-                    0.30 * Math.min(saveRate / TARGETS.engagement.saveRate, 2.0) +
-                    0.20 * Math.min(commentRate / TARGETS.engagement.commentRate, 2.0) +
-                    0.10 * Math.min(likeRate / TARGETS.engagement.likeRate, 2.0);
-        d._score = Math.round(raw * 100);
-      } else if (d.campaign_type === 'traffic') {
-        const ctrR = Math.min(TARGETS.traffic.ctr > 0 ? (d.ctr||0) / TARGETS.traffic.ctr : 0, 2.0);
-        const cpc = (d.link_clicks||0) > 0 ? (d.spend||0) / d.link_clicks : 0;
-        const cpcR = Math.min(cpc > 0 ? TARGETS.traffic.cpc / cpc : 0, 2.0);
-        const lpvr = (d.link_clicks||0) > 0 ? (d.landing_page_views||0) / d.link_clicks : 0;
-        const lpvrR = Math.min(TARGETS.traffic.lpvr > 0 ? lpvr / TARGETS.traffic.lpvr : 0, 2.0);
-        const freqR = Math.min((d.frequency||0) > 0 ? TARGETS.traffic.frequency / d.frequency : 0, 2.0);
-        d._score = Math.round((0.40 * ctrR + 0.30 * cpcR + 0.20 * lpvrR + 0.10 * freqR) * 100);
-      } else {
-        d._score = 0;
-      }
-      // Target-based boost thresholds: 100 = on target, max 200
-      d._boost = d._score >= 100 ? 'boost' : d._score >= 70 ? 'monitor' : 'no boost';
+      // Use server-computed score (0-100 peer-relative), fall back to null
+      d._score = (d.score != null) ? Math.round(d.score) : null;
+      d._boost = d.boost === true ? 'boost' : (d.score != null ? 'no boost' : null);
+      d._benchmark = d.benchmark != null ? Math.round(d.benchmark * 10) / 10 : null;
     }
+  }
+
+  // Score color: green (70+), orange (40-69), red (<40)
+  function scoreColor(score) {
+    if (score == null) return 'var(--text-3)';
+    if (score >= 70) return 'var(--green)';
+    if (score >= 40) return 'var(--orange)';
+    return '#ef4444';
+  }
+
+  function scoreBgColor(score) {
+    if (score == null) return 'rgba(255,255,255,0.05)';
+    if (score >= 70) return 'rgba(52,211,153,0.15)';
+    if (score >= 40) return 'rgba(251,191,36,0.15)';
+    return 'rgba(239,68,68,0.15)';
   }
 
   document.addEventListener('DOMContentLoaded', () => initLogin());
@@ -1583,7 +1568,7 @@
       if (i > 0) h += ` <span style="color:var(--text-3)">+</span> `;
       h += `<span class="chip ${chipClass}">${label} ${weight}</span>`;
     });
-    h += `<span style="margin-left:auto; font-size:10px; color:var(--text-3)">100 = on target \u2022 max 200</span>`;
+    h += `<span style="margin-left:auto; font-size:10px; color:var(--text-3)">0–100 peer-relative · top 30% = BOOST</span>`;
     h += `<span class="score-info-btn" onclick="event.stopPropagation(); showScoreInfo('${type}')" title="How is this score calculated?">?</span>`;
     h += `</div>`;
 
@@ -1592,21 +1577,28 @@
       return h;
     }
 
-    // Summary — only 4 blocks, TBD until scoring formula is finalized
+    // Summary — peer-relative scoring stats
+    const scoredAds = ads.filter(d => d._score != null);
+    const avgScore = scoredAds.length > 0 ? Math.round(scoredAds.reduce((s, d) => s + d._score, 0) / scoredAds.length) : null;
+    const boostCount = ads.filter(d => d._boost === 'boost').length;
+    const noBoostCount = scoredAds.length - boostCount;
+    const unscoredCount = ads.length - scoredAds.length;
+
     h += `<div class="summary" style="grid-template-columns: repeat(4, 1fr);">`;
-    h += `<div class="summary-card"><div class="summary-label">Avg Score</div><div class="summary-value" style="color:var(--text-3)">TBD</div></div>`;
-    h += `<div class="summary-card"><div class="summary-label">Boost</div><div class="summary-value" style="color:var(--text-3)">TBD</div></div>`;
-    h += `<div class="summary-card"><div class="summary-label">Monitor</div><div class="summary-value" style="color:var(--text-3)">TBD</div></div>`;
-    h += `<div class="summary-card"><div class="summary-label">No Boost</div><div class="summary-value" style="color:var(--text-3)">TBD</div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">Avg Score</div><div class="summary-value" style="color:${avgScore != null ? scoreColor(avgScore) : 'var(--text-3)'}">${avgScore != null ? avgScore : '—'}</div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">Boost</div><div class="summary-value" style="color:var(--green)">${boostCount}</div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">No Boost</div><div class="summary-value" style="color:var(--text-3)">${noBoostCount}</div></div>`;
+    h += `<div class="summary-card"><div class="summary-label">Unscored</div><div class="summary-value" style="color:var(--text-dim)">${unscoredCount}</div></div>`;
     h += `</div>`;
 
     // Ad cards
-    const topScore = ads.length > 0 ? Math.max(...ads.map(d => d._score || 0)) : 0;
+    const scoredValues = ads.filter(d => d._score != null).map(d => d._score);
+    const topScore = scoredValues.length > 0 ? Math.max(...scoredValues) : null;
 
     h += `<div class="ad-grid">`;
     ads.forEach((d, i) => {
-      const score = d._score || 0;
-      const isWinner = score === topScore && ads.length > 1 && score > 0;
+      const score = d._score;
+      const isWinner = score != null && score === topScore && ads.length > 1 && score > 0;
       const m = metrics(d);
       const platClass = 'plat-' + (d.publisher_platform || 'unknown');
       const platLabel = cap(d.publisher_platform || 'unknown');
@@ -1634,7 +1626,12 @@
       }
       h += `<span class="badge-platform ${platClass}">${platLabel}</span>`;
       h += `<span class="badge-status ${statusClass}">${statusLabel}</span>`;
-      h += `<span class="badge-score"><span>TBD</span></span>`;
+      // Score badge (color-coded 0-100)
+      if (d._score != null) {
+        h += `<span class="badge-score" style="background:${scoreBgColor(d._score)}; color:${scoreColor(d._score)}; box-shadow:none;"><span>${d._score}</span></span>`;
+      } else {
+        h += `<span class="badge-score" style="background:rgba(255,255,255,0.05); color:var(--text-3); box-shadow:none;"><span>—</span></span>`;
+      }
       h += `</div>`;
 
       // Body
@@ -1654,9 +1651,19 @@
       });
       h += `</div>`;
 
-      // Footer — score TBD until formula is finalized
-      h += `<div class="ad-footer">`;
-      h += `<span class="bench-tbd">Score: TBD</span>`;
+      // Footer — score + benchmark + boost tag
+      h += `<div class="ad-footer" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">`;
+      if (d._score != null) {
+        h += `<span style="font-size:12px; font-weight:600; color:${scoreColor(d._score)};">Score: ${d._score}</span>`;
+        if (d._benchmark != null) {
+          h += `<span style="font-size:11px; color:var(--text-3);">Benchmark: ${d._benchmark}</span>`;
+        }
+        if (d._boost === 'boost') {
+          h += `<span style="padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; background:rgba(52,211,153,0.15); color:var(--green); border:1px solid rgba(52,211,153,0.3); letter-spacing:0.5px;">BOOST</span>`;
+        }
+      } else {
+        h += `<span style="font-size:11px; color:var(--text-dim);">Score: awaiting peers</span>`;
+      }
       h += `</div>`;
 
       h += `</div></div>`; // close ad-body, ad-card
@@ -2073,60 +2080,42 @@
     return {
       awareness: {
         title: awarenessTitle,
-        subtitle: 'How well is your ad getting seen by people?',
-        formula: `We compare your ad's numbers to our targets and give each one a weight:
+        subtitle: 'How does your ad compare to its peers at the same life-stage?',
+        formula: `Your ad is scored against the <strong>15 most recent ads</strong> in the same bucket at the same snapshot hour. Each metric is min-max normalized (0–1) across the peer pool:
 
-<strong>Reach (40%)</strong> — How many people saw your ad?
-Target: ${(TARGETS.awareness.reach/1000).toFixed(0)}K people
+<strong>Reach (40%)</strong> — How many people saw your ad vs. peers?
 
-<strong>Cost per 1K views (40%)</strong> — How cheaply are you reaching people?
-Target: &euro;${TARGETS.awareness.cpm} per 1,000 views
+<strong>CPM inverted (40%)</strong> — Lower cost per 1K views = better score.
 
-<strong>${cap(viewLabel)} (20%)</strong> — What % of people watched the video?
-Target: ${TARGETS.awareness.viewRate}%
+<strong>${cap(viewLabel)} (20%)</strong> — What % of people watched vs. peers?
 
-A score of <strong>100</strong> means you're hitting all targets perfectly.
-Higher = better. You can score up to 200 if you're smashing every target.`,
+Score = 100 × weighted sum of normalized metrics (0–100).
+<strong>Benchmark</strong> = 70th percentile of peer scores.
+<strong>BOOST</strong> = your score beats the benchmark (top 30%).`,
         targets: ``
       },
       engagement: {
         title: engagementTitle,
-        subtitle: 'How much are people interacting with your ad?',
-        formula: `We measure how many shares, ${savesLabel.toLowerCase()}, comments and likes your ad gets per 1,000 people reached:
+        subtitle: 'How does your ad\'s engagement compare to peers?',
+        formula: `Your ad is scored against the <strong>15 most recent ads</strong> in the same bucket at the same snapshot hour. Rates are per 1,000 impressions, then min-max normalized:
 
-<strong>Shares (40%)</strong> — The strongest signal. People sharing your ad with others.
-Target: ${TARGETS.engagement.shareRate} shares per 1K reach
+<strong>Share rate (40%)</strong> — The strongest signal. People sharing your ad.
 
-<strong>${savesLabel} (30%)</strong> — ${savesDesc}
-Target: ${TARGETS.engagement.saveRate} ${savesLabel.toLowerCase()} per 1K reach
+<strong>${savesLabel} rate (30%)</strong> — ${savesDesc}
 
-<strong>Comments (20%)</strong> — People taking the time to comment.
-Target: ${TARGETS.engagement.commentRate} comments per 1K reach
+<strong>Comment rate (20%)</strong> — People commenting on your ad.
 
-<strong>Likes (10%)</strong> — The most basic interaction.
-Target: ${TARGETS.engagement.likeRate} likes per 1K reach
+<strong>Like rate (10%)</strong> — The most basic interaction.
 
-A score of <strong>100</strong> means you're hitting all targets perfectly.`,
+Score = 100 × weighted sum of normalized rates (0–100).
+<strong>Benchmark</strong> = 70th percentile of peer scores.
+<strong>BOOST</strong> = your score beats the benchmark (top 30%).`,
         targets: ``
       },
       traffic: {
         title: 'Traffic Score',
         subtitle: 'How well is your ad driving people to the website?',
-        formula: `We measure how effectively your ad gets people to click through and visit:
-
-<strong>Click-through rate (40%)</strong> — What % of people click your ad?
-Target: ${TARGETS.traffic.ctr}%
-
-<strong>Cost per click (30%)</strong> — How much does each click cost?
-Target: &euro;${TARGETS.traffic.cpc} per click
-
-<strong>Landing page view rate (20%)</strong> — Of those who click, how many actually load the page?
-Target: ${(TARGETS.traffic.lpvr*100).toFixed(0)}%
-
-<strong>Frequency (10%)</strong> — Are you showing the ad too many times to the same people?
-Target: max ${TARGETS.traffic.frequency} times per person
-
-A score of <strong>100</strong> means you're hitting all targets perfectly.`,
+        formula: `Traffic ads are not currently scored in the peer-relative system. This section will be updated when traffic scoring is added.`,
         targets: ``
       }
     };
@@ -2143,9 +2132,9 @@ A score of <strong>100</strong> means you're hitting all targets perfectly.`,
       <div class="score-formula-block"><pre style="margin:0;white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.7;">${info.formula}</pre></div>
       ${info.targets ? `<div class="score-targets">${info.targets}</div>` : ''}
       <div class="score-legend" style="margin-top:16px;">
-        <span><span class="dot" style="background:var(--green)"></span> 100+ = Great, boost this ad</span>
-        <span><span class="dot" style="background:var(--orange)"></span> 70–99 = Getting there, keep watching</span>
-        <span><span class="dot" style="background:var(--red)"></span> Below 70 = Underperforming</span>
+        <span><span class="dot" style="background:var(--green)"></span> 70–100 = Strong performer (likely BOOST)</span>
+        <span><span class="dot" style="background:var(--orange)"></span> 40–69 = Average, keep watching</span>
+        <span><span class="dot" style="background:#ef4444"></span> Below 40 = Below peers</span>
       </div>
     </div>`;
     overlay.classList.add('open');
