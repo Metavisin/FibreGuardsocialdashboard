@@ -498,34 +498,167 @@ app.get("/debug-campaigns", async (req, res) => {
   }
 });
 
-// Migration: add video_2s columns to ad_snapshots if they don't exist
-app.get("/migrate-add-2s-columns", async (req, res) => {
-  try {
-    // Supabase PostgREST doesn't support ALTER TABLE, so we use the SQL editor via RPC
-    // Instead, try inserting with the new columns — if they don't exist, we'll get an error
-    // and need to add them manually via Supabase dashboard SQL editor
+// ====== COMPREHENSIVE CLEANUP ENDPOINT ======
+// One endpoint to fix everything in Supabase:
+// 1. Check/report if video_2s columns exist
+// 2. Delete all data before April 2026
+// 3. Fix campaign_types: TikTok=reach/community, Instagram=awareness/engagement
+// 4. Backfill video_2s data from old video_3s columns for TikTok records
+app.get("/cleanup", async (req, res) => {
+  const results = {
+    step1_columns: null,
+    step2_delete_old: null,
+    step3_fix_types: null,
+    step4_backfill_2s: null
+  };
 
-    // Test if columns exist by selecting them
-    const { data, error } = await supabase
+  try {
+    // ── STEP 1: Check if video_2s columns exist ──
+    const { data: colTest, error: colErr } = await supabase
       .from("ad_snapshots")
       .select("video_2s_views, video_2s_view_rate")
       .limit(1);
 
-    if (error && error.message.includes("video_2s")) {
-      res.json({
-        status: "columns_missing",
-        message: "The video_2s_views and video_2s_view_rate columns don't exist yet. Please add them in Supabase SQL Editor:",
+    if (colErr && colErr.message.includes("video_2s")) {
+      results.step1_columns = {
+        status: "MISSING — run this SQL in Supabase SQL Editor first, then hit /cleanup again",
         sql: "ALTER TABLE ad_snapshots ADD COLUMN IF NOT EXISTS video_2s_views numeric DEFAULT 0; ALTER TABLE ad_snapshots ADD COLUMN IF NOT EXISTS video_2s_view_rate numeric DEFAULT 0;"
-      });
-    } else {
-      res.json({
-        status: "columns_exist",
-        message: "video_2s_views and video_2s_view_rate columns already exist",
-        sample: data
-      });
+      };
+      // Can't proceed without columns
+      return res.json(results);
     }
+    results.step1_columns = { status: "OK — columns exist" };
+
+    // ── STEP 2: Delete all data before April 2026 ──
+    const { data: oldRows, error: countErr } = await supabase
+      .from("ad_snapshots")
+      .select("id", { count: "exact" })
+      .lt("captured_at", "2026-04-01T00:00:00.000Z");
+
+    const oldCount = oldRows?.length || 0;
+
+    if (oldCount > 0) {
+      const { error: delErr } = await supabase
+        .from("ad_snapshots")
+        .delete()
+        .lt("captured_at", "2026-04-01T00:00:00.000Z");
+
+      if (delErr) throw new Error(`Delete failed: ${delErr.message}`);
+      results.step2_delete_old = { status: "OK", deleted: oldCount };
+    } else {
+      results.step2_delete_old = { status: "OK — no pre-April data found", deleted: 0 };
+    }
+
+    // Also clean up ad_tracking for old entries
+    const { error: trackDelErr } = await supabase
+      .from("ad_tracking")
+      .delete()
+      .lt("first_seen_active", "2026-04-01T00:00:00.000Z");
+    if (trackDelErr) console.warn("ad_tracking cleanup warning:", trackDelErr.message);
+
+    // ── STEP 3: Fix campaign_types ──
+    const { objectives, objectivesById } = await fetchCampaignInfo();
+
+    // Paginate through ALL remaining snapshots
+    let snapshots = [];
+    let from = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from("ad_snapshots")
+        .select("id, campaign_name, campaign_id, campaign_type, publisher_platform, video_3s_views, video_3s_view_rate, video_2s_views, video_2s_view_rate, impressions")
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      snapshots = snapshots.concat(data);
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+
+    let typesFixed = 0;
+    let typesSkipped = 0;
+    let backfilled = 0;
+    const typeChanges = [];
+
+    for (const snap of snapshots) {
+      const platform = (snap.publisher_platform || "").toLowerCase();
+      let correctType = null;
+      const updates = {};
+
+      // ── Fix campaign_type ──
+      if (platform === "tiktok") {
+        if (snap.campaign_type === "awareness") correctType = "reach";
+        else if (snap.campaign_type === "engagement") correctType = "community";
+      } else if (["instagram", "facebook"].includes(platform)) {
+        // Make sure Instagram/Facebook don't have "reach" or "community"
+        if (snap.campaign_type === "reach") correctType = "awareness";
+        else if (snap.campaign_type === "community") correctType = "engagement";
+        else {
+          // Check against Meta objective
+          const idLookup = snap.campaign_id ? (objectivesById[snap.campaign_id] || null) : null;
+          const nameLookup = objectives[snap.campaign_name] || null;
+          const apiObjective = idLookup || nameLookup || "";
+          if (apiObjective) {
+            const fromApi = objectiveToCampaignType(apiObjective);
+            if (fromApi && fromApi !== snap.campaign_type) correctType = fromApi;
+          }
+        }
+      }
+
+      if (correctType && correctType !== snap.campaign_type) {
+        updates.campaign_type = correctType;
+        typeChanges.push({
+          id: snap.id, campaign_name: snap.campaign_name,
+          platform, old: snap.campaign_type, new: correctType
+        });
+        typesFixed++;
+      } else {
+        typesSkipped++;
+      }
+
+      // ── STEP 4: Backfill video_2s for TikTok ──
+      // If TikTok row has data in video_3s but not in video_2s, migrate it
+      if (platform === "tiktok") {
+        const has3sData = (snap.video_3s_views || 0) > 0 || (snap.video_3s_view_rate || 0) > 0;
+        const has2sData = (snap.video_2s_views || 0) > 0 || (snap.video_2s_view_rate || 0) > 0;
+
+        if (has3sData && !has2sData) {
+          updates.video_2s_views = snap.video_3s_views || 0;
+          updates.video_2s_view_rate = snap.video_3s_view_rate || 0;
+          updates.video_3s_views = 0;
+          updates.video_3s_view_rate = 0;
+          backfilled++;
+        }
+      }
+
+      // Apply all updates for this row in one call
+      if (Object.keys(updates).length > 0) {
+        const { error: updateErr } = await supabase
+          .from("ad_snapshots")
+          .update(updates)
+          .eq("id", snap.id);
+        if (updateErr) console.warn(`Update failed for id ${snap.id}:`, updateErr.message);
+      }
+    }
+
+    results.step3_fix_types = {
+      status: "OK",
+      total_rows: snapshots.length,
+      types_fixed: typesFixed,
+      types_already_correct: typesSkipped,
+      changes: typeChanges.slice(0, 50)
+    };
+
+    results.step4_backfill_2s = {
+      status: "OK",
+      tiktok_rows_backfilled: backfilled,
+      description: "Moved video_3s data → video_2s for TikTok rows, cleared video_3s"
+    };
+
+    res.json(results);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ ...results, error: err.message, stack: err.stack });
   }
 });
 
