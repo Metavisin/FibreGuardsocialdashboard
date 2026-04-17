@@ -1361,6 +1361,26 @@
       let all = [...latestMap.values()];
       if (campaign !== 'all') all = all.filter(d => d.campaign_name === campaign);
 
+      // Merge scores from Supabase and populate _score/_boost/_benchmark
+      const scoreMap = {};
+      for (const d of allData) {
+        if (d.score == null) continue;
+        const key = `${d.ad_id}__${d.publisher_platform}`;
+        if (!scoreMap[key] || new Date(d.captured_at) > new Date(scoreMap[key].captured_at)) {
+          scoreMap[key] = d;
+        }
+      }
+      for (const d of all) {
+        const key = `${d.ad_id}__${d.publisher_platform}`;
+        const scored = scoreMap[key];
+        if (scored && d.score == null) {
+          d.score = scored.score;
+          d.benchmark = scored.benchmark;
+          d.boost = scored.boost;
+        }
+      }
+      recalcScores(all);
+
       renderCompare(all);
       return;
     }
@@ -1509,7 +1529,7 @@
       type: 'awareness', title: awarenessLabel.title, sub: awarenessLabel.sub,
       iconClass: 'icon-awareness', icon: '\u25C9',
       formula: [['Reach','40%'],['CPM','40% inv'],[viewRateLabel,'20%']],
-      chipClass: 'chip-blue', ads: awareness, scoreKey: 'awareness_score',
+      chipClass: 'chip-blue', ads: awareness, scoreKey: 'score',
       metrics: d => [
         ['Reach', fmt(d.reach)], ['CPM', '\u20ac'+(d.cpm||0).toFixed(3)],
         [viewRateLabel, getViewRate(d).toFixed(1)+'%'], ['Spend', '\u20ac'+(d.spend||0).toFixed(2)]
@@ -1522,7 +1542,7 @@
       type: 'engagement', title: engagementLabel.title, sub: engagementLabel.sub,
       iconClass: 'icon-engagement', icon: '\u2665',
       formula: [['Share Rate','40%'],[savesLabel + ' Rate','30%'],['Comment Rate','20%'],['Like Rate','10%']],
-      chipClass: 'chip-purple', ads: engagement, scoreKey: 'engagement_score',
+      chipClass: 'chip-purple', ads: engagement, scoreKey: 'score',
       metrics: d => [
         ['Shares', fmt(d.shares)], [savesLabel, fmt(d.saves)],
         ['Comments', fmt(d.comments)], ['Likes', fmt(d.likes)],
@@ -1536,7 +1556,7 @@
       type: 'traffic', title: trafficLabel.title, sub: trafficLabel.sub,
       iconClass: 'icon-traffic', icon: '\u2197',
       formula: [['CTR','40%'],['CPC','30% inv'],['LPVR','20%'],['Frequency','10% inv']],
-      chipClass: 'chip-green', ads: traffic, scoreKey: 'traffic_score',
+      chipClass: 'chip-green', ads: traffic, scoreKey: 'score',
       metrics: d => {
         const cpc = (d.link_clicks||0) > 0 ? d.spend / d.link_clicks : (d.cost_per_click||0);
         const lpvr = (d.link_clicks||0) > 0 ? ((d.landing_page_views||0) / d.link_clicks * 100) : 0;
@@ -1769,7 +1789,7 @@
           h += `<td>\u20ac${(d.cpm||0).toFixed(3)}${d.cpm === bestCpm && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>${getViewRate(d).toFixed(1)}%${getViewRate(d) === bestVr && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>${fmt(d.impressions)}</td>`;
-          h += `<td style="color:${d.awareness_score ? sColor(d.awareness_score) : 'var(--text-3)'}">${d.awareness_score ?? 'N/A'}</td>`;
+          h += `<td style="color:${d._score != null ? scoreColor(d._score) : 'var(--text-3)'}">${d._score ?? '—'}</td>`;
           h += `</tr>`;
         }
       } else if (isTraffic) {
@@ -1786,7 +1806,7 @@
           h += `<td>${(d.ctr||0).toFixed(2)}%${d.ctr === bestCtr && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>\u20ac${(d.cpm||0).toFixed(3)}${d.cpm === bestCpm && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>${fmt(d.reach)}</td>`;
-          h += `<td style="color:${d.traffic_score ? sColor(d.traffic_score) : 'var(--text-3)'}">${d.traffic_score ?? 'N/A'}</td>`;
+          h += `<td style="color:${d._score != null ? scoreColor(d._score) : 'var(--text-3)'}">${d._score ?? '—'}</td>`;
           h += `</tr>`;
         }
       } else {
@@ -1802,7 +1822,7 @@
           h += `<td>${fmt(d.saves)}${d.saves === bestSaves && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>${fmt(d.comments)}</td>`;
           h += `<td>${fmt(d.likes)}</td>`;
-          h += `<td style="color:${d.engagement_score ? sColor(d.engagement_score) : 'var(--text-3)'}">${d.engagement_score ?? 'N/A'}</td>`;
+          h += `<td style="color:${d._score != null ? scoreColor(d._score) : 'var(--text-3)'}">${d._score ?? '—'}</td>`;
           h += `</tr>`;
         }
       }
@@ -1811,8 +1831,8 @@
 
       // Show AI insight from the best-performing platform
       const bestItem = items.reduce((a, b) => {
-        const sa = a.awareness_score ?? a.engagement_score ?? a.traffic_score ?? 0;
-        const sb = b.awareness_score ?? b.engagement_score ?? b.traffic_score ?? 0;
+        const sa = a._score ?? 0;
+        const sb = b._score ?? 0;
         return sb > sa ? b : a;
       });
       if (bestItem.ai_insight) {
@@ -1842,13 +1862,22 @@
 
     // Build campaign type cards dynamically
     const typeCards = [];
+    function typeCardStats(ads) {
+      const scored = ads.filter(d => d._score != null);
+      return {
+        boostReady: ads.filter(d => d._boost === 'boost').length,
+        avgScore: scored.length > 0 ? Math.round(scored.reduce((s,d) => s + d._score, 0) / scored.length) : 0
+      };
+    }
+
     if (awarenessAds.length > 0) {
       const a = awarenessAds;
+      const st = typeCardStats(a);
       typeCards.push({
         label: 'Awareness', icon: '\u{1F4E3}', iconClass: 'icon-awareness', color: 'var(--blue)',
         count: a.length,
-        boostReady: a.filter(d => (d.awareness_score || 0) >= 70).length,
-        avgScore: Math.round(a.reduce((s,d) => s+(d.awareness_score||0),0)/a.length),
+        boostReady: st.boostReady,
+        avgScore: st.avgScore,
         totalImpressions: a.reduce((s,d) => s+(d.impressions||0),0),
         stats: [
           ['Total Reach', fmt(a.reduce((s,d)=>s+(d.reach||0),0)), true],
@@ -1859,11 +1888,12 @@
     }
     if (engagementAds.length > 0) {
       const e = engagementAds;
+      const st = typeCardStats(e);
       typeCards.push({
         label: 'Engagement', icon: '\u{1F4AC}', iconClass: 'icon-engagement', color: 'var(--purple)',
         count: e.length,
-        boostReady: e.filter(d => (d.engagement_score || 0) >= 70).length,
-        avgScore: Math.round(e.reduce((s,d) => s+(d.engagement_score||0),0)/e.length),
+        boostReady: st.boostReady,
+        avgScore: st.avgScore,
         totalImpressions: e.reduce((s,d) => s+(d.impressions||0),0),
         stats: [
           ['Shares+Saves', fmt(e.reduce((s,d)=>s+(d.shares||0)+(d.saves||0),0)), true],
@@ -1874,11 +1904,12 @@
     }
     if (trafficAds.length > 0) {
       const t = trafficAds;
+      const st = typeCardStats(t);
       typeCards.push({
         label: 'Traffic', icon: '\u{1F517}', iconClass: 'icon-traffic', color: 'var(--green)',
         count: t.length,
-        boostReady: t.filter(d => (d.traffic_score || 0) >= 70).length,
-        avgScore: Math.round(t.reduce((s,d) => s+(d.traffic_score||0),0)/t.length),
+        boostReady: st.boostReady,
+        avgScore: st.avgScore,
         totalImpressions: t.reduce((s,d) => s+(d.impressions||0),0),
         stats: [
           ['Total Clicks', fmt(t.reduce((s,d)=>s+(d.link_clicks||0),0)), true],
@@ -2278,7 +2309,7 @@ Score = 100 × weighted sum of normalized rates (0–100).
     snaps.forEach((s, idx) => {
       // Use sequential position for hourly snapshots to avoid gaps from GH Actions timing
       const label = (s.snapshot_hours != null && s.snapshot_hours <= 12) ? sequentialHourLabel(idx) : clientHourLabel(s.snapshot_hours);
-      const score = s.awareness_score ?? s.engagement_score ?? s.traffic_score ?? '—';
+      const score = s.score ?? '—';
       h += `<tr>`;
       h += `<td style="font-weight:600; color:var(--text-1);">${label}</td>`;
       h += `<td>${fmt(s.reach)}</td>`;

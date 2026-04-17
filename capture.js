@@ -101,52 +101,6 @@ function parseActions(actions = []) {
   return { likes, comments, shares, saves, video3sViews, linkClicks, landingPageViews };
 }
 
-// ====== TARGET-BASED SCORING (Variant B) ======
-// Each component capped at 2.0, max score = 200 pts
-const TARGETS = {
-  awareness: { reach: 400000, cpm: 0.07, viewRate: 15 },
-  engagement: { shareRate: 2.0, saveRate: 3.0, commentRate: 1.5, likeRate: 20.0 },
-  traffic: { ctr: 1.0, cpc: 0.007, lpvr: 0.70, frequency: 2.0 }
-};
-
-function computeAbsoluteScores(rows) {
-  for (const row of rows) {
-    if (row.campaign_type === "awareness" || row.campaign_type === "reach") {
-      const reachRatio = Math.min(TARGETS.awareness.reach > 0 ? row.reach / TARGETS.awareness.reach : 0, 2.0);
-      const cpmRatio = Math.min(row.cpm > 0 ? TARGETS.awareness.cpm / row.cpm : 0, 2.0);
-      const viewRatio = Math.min(TARGETS.awareness.viewRate > 0 ? row.video_3s_view_rate / TARGETS.awareness.viewRate : 0, 2.0);
-      row.awareness_score = round((0.40 * reachRatio + 0.40 * cpmRatio + 0.20 * viewRatio) * 100);
-      row.engagement_score = null;
-      row.traffic_score = null;
-    } else if (row.campaign_type === "engagement" || row.campaign_type === "community") {
-      const reach1k = row.reach > 0 ? row.reach / 1000 : 0.001;
-      const shareRate = row.shares / reach1k;
-      const saveRate = row.saves / reach1k;
-      const commentRate = row.comments / reach1k;
-      const likeRate = row.likes / reach1k;
-      const raw = 0.40 * Math.min(shareRate / TARGETS.engagement.shareRate, 2.0) +
-                  0.30 * Math.min(saveRate / TARGETS.engagement.saveRate, 2.0) +
-                  0.20 * Math.min(commentRate / TARGETS.engagement.commentRate, 2.0) +
-                  0.10 * Math.min(likeRate / TARGETS.engagement.likeRate, 2.0);
-      row.engagement_score = round(raw * 100);
-      row.awareness_score = null;
-      row.traffic_score = null;
-    } else if (row.campaign_type === "traffic") {
-      const ctrRatio = Math.min(TARGETS.traffic.ctr > 0 ? row.ctr / TARGETS.traffic.ctr : 0, 2.0);
-      const cpcRatio = Math.min(row.cost_per_click > 0 ? TARGETS.traffic.cpc / row.cost_per_click : 0, 2.0);
-      const lpvrRatio = Math.min(TARGETS.traffic.lpvr > 0 ? row.lpvr / TARGETS.traffic.lpvr : 0, 2.0);
-      const freqRatio = Math.min(row.frequency > 0 ? TARGETS.traffic.frequency / row.frequency : 0, 2.0);
-      row.traffic_score = round((0.40 * ctrRatio + 0.30 * cpcRatio + 0.20 * lpvrRatio + 0.10 * freqRatio) * 100);
-      row.awareness_score = null;
-      row.engagement_score = null;
-    }
-    const score = row.awareness_score ?? row.engagement_score ?? row.traffic_score ?? 0;
-    if (score >= 100) row.boost_recommendation = "boost";
-    else if (score >= 70) row.boost_recommendation = "monitor";
-    else row.boost_recommendation = "no boost";
-  }
-}
-
 // ====== TIKTOK API ======
 
 const TIKTOK_APP_ID = process.env.TIKTOK_APP_ID;
@@ -509,13 +463,11 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
       shares: ttShares, saves: ttFavorites, // TikTok "favorites" = Meta "saves"
       link_clicks: clicks,
       ctr,
-      awareness_score: null, engagement_score: null, traffic_score: null,
-      boost_recommendation: null, thumbnail_url: thumbnailMap[adId] || null
+      thumbnail_url: thumbnailMap[adId] || null
     });
   }
 
   console.log(`TikTok: ${rows.length} ads with actual data (filtered from ${insights.length} insight rows)`);
-  computeAbsoluteScores(rows);
   return rows;
 }
 
@@ -911,8 +863,6 @@ async function run() {
       video_2s_views: 0, // Meta doesn't have 2s views — TikTok only
       video_2s_view_rate: 0,
       likes: 0, comments: 0, shares: 0, saves: 0, link_clicks: 0, ctr: 0,
-      awareness_score: null, engagement_score: null, traffic_score: null,
-      boost_recommendation: null,
       thumbnail_url: allThumbnails[item.ad_id] || null
     };
 
@@ -981,8 +931,6 @@ async function run() {
     row.cost_per_click = row.link_clicks > 0 ? round(row.spend / row.link_clicks, 4) : 0;
     row.lpvr = row.link_clicks > 0 ? round(row.landing_page_views / row.link_clicks, 4) : 0;
   }
-
-  computeAbsoluteScores(rowsToInsert);
 
   // 8. Insert into Supabase
   if (rowsToInsert.length > 0) {

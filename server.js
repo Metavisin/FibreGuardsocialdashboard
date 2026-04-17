@@ -162,73 +162,6 @@ function parseActions(actions = []) {
 //
 // Traffic:   (CTR% × 25) + max(0, (20 − CPM) × 2) + (link_clicks × 0.1)
 // Awareness: (reach / 1000 × 2) + max(0, (20 − CPM) × 2) + (view_rate × 2)
-// Engagement: (shares × 5) + (saves × 3) + (comments × 2) + (likes × 0.5)
-
-// ====== TARGET-BASED SCORING (Variant B) ======
-// Score = 1.0 means on target, displayed as ×100 for points (100 pts = on target)
-// Each component is capped at 2.0, so max score = 200 pts
-const TARGETS = {
-  awareness: {
-    reach: 400000,    // Target reach
-    cpm: 0.07,        // Target CPM (lower is better)
-    viewRate: 15      // Target 3s view rate %
-  },
-  engagement: {
-    shareRate: 2.0,   // Shares per 1K reach
-    saveRate: 3.0,    // Saves per 1K reach
-    commentRate: 1.5, // Comments per 1K reach
-    likeRate: 20.0    // Likes per 1K reach
-  },
-  traffic: {
-    ctr: 1.0,         // Target CTR %
-    cpc: 0.007,       // Target CPC $ (lower is better)
-    lpvr: 0.70,       // Target LPVR (landing page view rate)
-    frequency: 2.0    // Target frequency (lower is better)
-  }
-};
-
-function computeAbsoluteScores(rows) {
-  for (const row of rows) {
-    if (row.campaign_type === "awareness" || row.campaign_type === "reach") {
-      const reachRatio = Math.min(TARGETS.awareness.reach > 0 ? row.reach / TARGETS.awareness.reach : 0, 2.0);
-      const cpmRatio = Math.min(row.cpm > 0 ? TARGETS.awareness.cpm / row.cpm : 0, 2.0);
-      const viewRatio = Math.min(TARGETS.awareness.viewRate > 0 ? row.video_3s_view_rate / TARGETS.awareness.viewRate : 0, 2.0);
-      const raw = 0.40 * reachRatio + 0.40 * cpmRatio + 0.20 * viewRatio;
-      row.awareness_score = round(raw * 100);
-      row.engagement_score = null;
-      row.traffic_score = null;
-    } else if (row.campaign_type === "engagement" || row.campaign_type === "community") {
-      const reach1k = row.reach > 0 ? row.reach / 1000 : 0.001;
-      const shareRate = row.shares / reach1k;
-      const saveRate = row.saves / reach1k;
-      const commentRate = row.comments / reach1k;
-      const likeRate = row.likes / reach1k;
-      const raw = 0.40 * Math.min(shareRate / TARGETS.engagement.shareRate, 2.0) +
-                  0.30 * Math.min(saveRate / TARGETS.engagement.saveRate, 2.0) +
-                  0.20 * Math.min(commentRate / TARGETS.engagement.commentRate, 2.0) +
-                  0.10 * Math.min(likeRate / TARGETS.engagement.likeRate, 2.0);
-      row.engagement_score = round(raw * 100);
-      row.awareness_score = null;
-      row.traffic_score = null;
-    } else if (row.campaign_type === "traffic") {
-      const ctrRatio = Math.min(TARGETS.traffic.ctr > 0 ? row.ctr / TARGETS.traffic.ctr : 0, 2.0);
-      const cpcRatio = Math.min(row.cost_per_click > 0 ? TARGETS.traffic.cpc / row.cost_per_click : 0, 2.0);
-      const lpvrRatio = Math.min(TARGETS.traffic.lpvr > 0 ? row.lpvr / TARGETS.traffic.lpvr : 0, 2.0);
-      const freqRatio = Math.min(row.frequency > 0 ? TARGETS.traffic.frequency / row.frequency : 0, 2.0);
-      const raw = 0.40 * ctrRatio + 0.30 * cpcRatio + 0.20 * lpvrRatio + 0.10 * freqRatio;
-      row.traffic_score = round(raw * 100);
-      row.awareness_score = null;
-      row.engagement_score = null;
-    }
-
-    // Target-based boost thresholds: 100 = on target, max 200
-    const score = row.awareness_score ?? row.engagement_score ?? row.traffic_score ?? 0;
-    if (score >= 100) row.boost_recommendation = "boost";
-    else if (score >= 70) row.boost_recommendation = "monitor";
-    else row.boost_recommendation = "no boost";
-  }
-}
-
 // ====== META API FUNCTIONS ======
 
 // Fetch campaign objectives AND budgets from Meta
@@ -862,7 +795,7 @@ async function generateAdInsights(ads) {
 
   // Build a concise summary of all ads for Claude to analyze in one call
   const adSummaries = ads.map((ad, i) => {
-    const score = ad.awareness_score ?? ad.engagement_score ?? 'N/A';
+    const score = ad.score ?? 'N/A';
     const type = ad.campaign_type;
     if (type === 'awareness') {
       return `Ad ${i+1}: "${ad.ad_name}" (${ad.publisher_platform}) — Score: ${score}/100, Reach: ${ad.reach}, CPM: $${ad.cpm}, 3s View Rate: ${ad.video_3s_view_rate}%, Impressions: ${ad.impressions}`;
@@ -1392,16 +1325,11 @@ function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignSta
       saves: ttFavorites, // TikTok "favorites" = Meta "saves"
       link_clicks: clicks,
       ctr,
-      awareness_score: null,
-      engagement_score: null,
-      traffic_score: null,
-      boost_recommendation: null,
       thumbnail_url: thumbnailMap[adId] || null
     });
   }
 
   console.log(`TikTok: ${rows.length} ads with actual data (filtered from ${insights.length} insight rows)`);
-  computeAbsoluteScores(rows);
   return rows;
 }
 
@@ -1481,10 +1409,6 @@ function processInsightRows(rows, { objectiveMap, statusMap, createdTimeMap, thu
       landing_page_views: 0,
       lpvr: 0,
       ctr: 0,
-      awareness_score: null,
-      engagement_score: null,
-      traffic_score: null,
-      boost_recommendation: null,
       thumbnail_url: thumbnailMap[item.ad_id] || null
     };
 
@@ -1520,7 +1444,6 @@ function processInsightRows(rows, { objectiveMap, statusMap, createdTimeMap, thu
       row.link_clicks > 0 ? round(row.landing_page_views / row.link_clicks, 4) : 0;
   }
 
-  computeAbsoluteScores(cleanRows);
   return cleanRows;
 }
 
@@ -1549,8 +1472,6 @@ function addNewAdsWithoutInsights(cleanRows, { statusMap, createdTimeMap, thumbn
       impressions: 0, reach: 0, cpm: 0, spend: 0, frequency: 0, cost_per_click: 0,
       video_3s_views: 0, video_3s_view_rate: 0, video_2s_views: 0, video_2s_view_rate: 0,
       likes: 0, comments: 0, shares: 0, saves: 0, link_clicks: 0, landing_page_views: 0, ctr: 0, lpvr: 0,
-      awareness_score: null, engagement_score: null, traffic_score: null,
-      boost_recommendation: "new",
       thumbnail_url: thumbnailMap[adId] || null,
       ai_insight: "Just launched — no performance data yet. Check back soon."
     });
@@ -1728,7 +1649,7 @@ app.get("/tiktok-debug", async (req, res) => {
     const rows = processTikTokData(ads, insights, campaignObjectiveMap, campaignStatusMap, thumbs);
     log.push(`Processed rows (with data): ${rows.length}`);
     for (const r of rows) {
-      log.push(`  ${r.ad_name.substring(0,40)} | ${r.publisher_platform} | type=${r.campaign_type} | status=${r.ad_status} | spend=${r.spend} | thumb=${r.thumbnail_url ? 'yes' : 'no'} | score=${r.awareness_score??r.engagement_score??r.traffic_score}`);
+      log.push(`  ${r.ad_name.substring(0,40)} | ${r.publisher_platform} | type=${r.campaign_type} | status=${r.ad_status} | spend=${r.spend} | thumb=${r.thumbnail_url ? 'yes' : 'no'}`);
     }
 
     res.json({ ok: true, log, adsCount: ads.length, insightsCount: insights.length, processedCount: rows.length, processed: rows });
@@ -1972,8 +1893,6 @@ app.get("/smart-capture", async (req, res) => {
         video_2s_views: 0,
         video_2s_view_rate: 0,
         likes: 0, comments: 0, shares: 0, saves: 0, link_clicks: 0, landing_page_views: 0, ctr: 0, lpvr: 0,
-        awareness_score: null, engagement_score: null, traffic_score: null,
-        boost_recommendation: null,
         thumbnail_url: thumbnailMap[adId] || null
       };
 
@@ -2006,8 +1925,6 @@ app.get("/smart-capture", async (req, res) => {
       row.lpvr =
         row.link_clicks > 0 ? round(row.landing_page_views / row.link_clicks, 4) : 0;
     }
-
-    computeAbsoluteScores(cleanRows);
 
     // Also capture TikTok data in smart-capture
     let tikTokCaptured = 0;
@@ -2184,8 +2101,6 @@ app.post("/generate-report", async (req, res) => {
       row.cost_per_click = row.link_clicks > 0 ? round(row.spend / row.link_clicks, 4) : 0;
       row.lpvr = row.link_clicks > 0 ? round(row.landing_page_views / row.link_clicks, 4) : 0;
     }
-    computeAbsoluteScores(cleanRows);
-
     // Separate by campaign type and status
     const activeAds = cleanRows.filter(r => r.ad_status === 'ACTIVE');
     const completedAds = cleanRows.filter(r => r.ad_status !== 'ACTIVE');
@@ -2208,7 +2123,7 @@ app.post("/generate-report", async (req, res) => {
 
     // Build per-ad details
     const adDetails_str = cleanRows.map(ad => {
-      const score = ad.awareness_score ?? ad.engagement_score ?? ad.traffic_score ?? 0;
+      const score = ad.score ?? 0;
       return `- "${ad.ad_name}" (${ad.publisher_platform}, ${ad.campaign_type}, ${ad.ad_status}): Score=${score}, Reach=${ad.reach}, Impressions=${ad.impressions}, Spend=\u20ac${ad.spend.toFixed(2)}, CPM=\u20ac${ad.cpm.toFixed(3)}, CTR=${ad.ctr}%, Clicks=${ad.link_clicks}, Shares=${ad.shares}, Saves=${ad.saves}, Comments=${ad.comments}, Likes=${ad.likes}, CPC=\u20ac${ad.cost_per_click}, Frequency=${ad.frequency}`;
     }).join('\n');
 
@@ -2292,7 +2207,7 @@ Rules:
           { label: 'TikTok', value: cleanRows.filter(r=>r.publisher_platform==='tiktok').reduce((s,d)=>s+d.reach,0) }
         ],
         topAdsScores: cleanRows
-          .map(r => ({ name: r.ad_name.substring(0,30), score: r.awareness_score ?? r.engagement_score ?? r.traffic_score ?? 0, type: r.campaign_type, platform: r.publisher_platform }))
+          .map(r => ({ name: r.ad_name.substring(0,30), score: r.score ?? 0, type: r.campaign_type, platform: r.publisher_platform }))
           .sort((a,b) => b.score - a.score)
           .slice(0, 8),
         overview: { totalSpend: round(totalSpend), totalReach, totalClicks, totalImpressions, avgCTR: parseFloat(avgCTR), avgCPM: parseFloat(avgCPM), activeAds: activeAds.length, completedAds: completedAds.length }
