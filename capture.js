@@ -575,6 +575,10 @@ async function fetchInsightsForAds(adIds) {
 
   console.log(`Fetching insights for ${adIds.length} ads...`);
   const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/insights`;
+  let allRows = [];
+  let nextUrl = null;
+
+  // First request with limit=200 and pagination
   const { data } = await retryWithBackoff(() => axios.get(url, {
     params: {
       access_token: META_ACCESS_TOKEN,
@@ -583,11 +587,33 @@ async function fetchInsightsForAds(adIds) {
       action_breakdowns: "action_type",
       level: "ad",
       date_preset: "maximum",
-      filtering: JSON.stringify([{ field: "ad.id", operator: "IN", value: adIds }])
+      filtering: JSON.stringify([{ field: "ad.id", operator: "IN", value: adIds }]),
+      limit: 200
     }
   }), { label: "Meta Insights fetch" });
 
-  return data.data || [];
+  allRows = data.data || [];
+  nextUrl = data.paging?.next || null;
+
+  // Paginate through remaining results
+  let pageNum = 1;
+  while (nextUrl) {
+    pageNum++;
+    try {
+      const { data: pageData } = await axios.get(nextUrl);
+      const rows = pageData.data || [];
+      if (rows.length === 0) break;
+      allRows = allRows.concat(rows);
+      nextUrl = pageData.paging?.next || null;
+      console.log(`Meta insights page ${pageNum}: ${rows.length} rows (total so far: ${allRows.length})`);
+    } catch (err) {
+      console.warn(`Meta insights pagination failed on page ${pageNum}:`, err.message);
+      break;
+    }
+  }
+
+  console.log(`Meta insights: ${allRows.length} total rows across ${pageNum} page(s)`);
+  return allRows;
 }
 
 async function fetchThumbnails(adIds) {

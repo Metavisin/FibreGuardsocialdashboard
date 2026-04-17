@@ -303,7 +303,10 @@ async function fetchAdsetBudgets() {
 
 async function fetchMetaInsights(datePreset = "last_30d") {
   const url = `https://graph.facebook.com/v25.0/act_${META_AD_ACCOUNT_ID}/insights`;
+  let allRows = [];
+  let nextUrl = null;
 
+  // First request
   const { data } = await axios.get(url, {
     params: {
       access_token: META_ACCESS_TOKEN,
@@ -311,11 +314,33 @@ async function fetchMetaInsights(datePreset = "last_30d") {
       breakdowns: "publisher_platform",
       action_breakdowns: "action_type",
       level: "ad",
-      date_preset: datePreset
+      date_preset: datePreset,
+      limit: 200
     }
   });
 
-  return data.data || [];
+  allRows = data.data || [];
+  nextUrl = data.paging?.next || null;
+
+  // Paginate through remaining results
+  let pageNum = 1;
+  while (nextUrl) {
+    pageNum++;
+    try {
+      const { data: pageData } = await axios.get(nextUrl);
+      const rows = pageData.data || [];
+      if (rows.length === 0) break;
+      allRows = allRows.concat(rows);
+      nextUrl = pageData.paging?.next || null;
+      console.log(`Meta insights page ${pageNum}: ${rows.length} rows (total so far: ${allRows.length})`);
+    } catch (err) {
+      console.warn(`Meta insights pagination failed on page ${pageNum}:`, err.message);
+      break;
+    }
+  }
+
+  console.log(`Meta insights: ${allRows.length} total rows across ${pageNum} page(s)`);
+  return allRows;
 }
 
 // Fetch ad creative thumbnails, ad delivery status, and created_time from Meta — keyed by ad_id
@@ -1951,6 +1976,119 @@ app.get("/migrate", async (req, res) => {
     });
   } catch (err) {
     res.json({ ok: false, error: err.message });
+  }
+});
+
+// ====== META DEBUG ENDPOINT ======
+// Diagnostic endpoint to troubleshoot Meta API data issues
+app.get("/debug/meta", async (req, res) => {
+  const debug = { timestamp: new Date().toISOString(), steps: [] };
+  try {
+    // Step 1: Fetch all ad details
+    const adDetails = await fetchAdDetails();
+    const { statuses: statusMap, createdTimes: createdTimeMap } = adDetails;
+    const allAdIds = Object.keys(statusMap);
+    const activeAds = Object.entries(statusMap).filter(([, s]) => s === "ACTIVE");
+    const completedAds = Object.entries(statusMap).filter(([, s]) => s === "COMPLETED");
+
+    debug.steps.push({
+      step: "ad_details",
+      total_ads: allAdIds.length,
+      active: activeAds.length,
+      completed: completedAds.length,
+      status_breakdown: Object.entries(statusMap).reduce((acc, [, s]) => { acc[s] = (acc[s] || 0) + 1; return acc; }, {})
+    });
+
+    // Step 2: Fetch insights (now with pagination)
+    const campaignInfo = await fetchCampaignInfo();
+    const { objectives: objectiveMap } = campaignInfo;
+    const rows = await fetchMetaInsights();
+
+    // Breakdown by platform
+    const platformCounts = {};
+    const platformSpend = {};
+    for (const r of rows) {
+      const p = (r.publisher_platform || "unknown").toLowerCase();
+      platformCounts[p] = (platformCounts[p] || 0) + 1;
+      platformSpend[p] = (platformSpend[p] || 0) + safeNumber(r.spend);
+    }
+
+    // Unique ad_ids in insights
+    const insightAdIds = [...new Set(rows.map(r => r.ad_id))];
+
+    debug.steps.push({
+      step: "insights",
+      total_rows: rows.length,
+      unique_ads: insightAdIds.length,
+      platform_row_counts: platformCounts,
+      platform_spend: platformSpend
+    });
+
+    // Step 3: Campaign type breakdown
+    const campaignTypes = {};
+    for (const r of rows) {
+      const p = (r.publisher_platform || "").toLowerCase();
+      if (!["facebook", "instagram"].includes(p)) continue;
+      const objective = objectiveMap[r.campaign_name] || "";
+      const type = objectiveToCampaignType(objective) || detectCampaignTypeFallback(r.campaign_name, r.ad_name);
+      const key = `${type}_${p}`;
+      if (!campaignTypes[key]) campaignTypes[key] = { count: 0, spend: 0, ads: [] };
+      campaignTypes[key].count++;
+      campaignTypes[key].spend += safeNumber(r.spend);
+      if (campaignTypes[key].ads.length < 5) {
+        campaignTypes[key].ads.push({
+          ad_name: (r.ad_name || "").substring(0, 60),
+          campaign_name: r.campaign_name,
+          objective: objective,
+          spend: r.spend,
+          platform: p
+        });
+      }
+    }
+
+    debug.steps.push({ step: "campaign_types", breakdown: campaignTypes });
+
+    // Step 4: Show active ads with their campaign objectives
+    const activeAdDetails = activeAds.slice(0, 20).map(([adId, status]) => {
+      const insightRow = rows.find(r => r.ad_id === adId);
+      return {
+        ad_id: adId,
+        status,
+        ad_name: insightRow?.ad_name || "no insights",
+        campaign_name: insightRow?.campaign_name || "unknown",
+        objective: objectiveMap[insightRow?.campaign_name] || "unknown",
+        platform: insightRow?.publisher_platform || "unknown",
+        spend: insightRow?.spend || "0"
+      };
+    });
+
+    debug.steps.push({ step: "active_ad_details", ads: activeAdDetails });
+
+    // Step 5: Check Supabase for Instagram vs Facebook snapshots
+    const { data: igSnaps, error: igErr } = await supabase
+      .from("ad_snapshots")
+      .select("ad_id, ad_name, campaign_name, campaign_type, publisher_platform, spend, impressions, ad_status, captured_at")
+      .eq("publisher_platform", "instagram")
+      .order("captured_at", { ascending: false })
+      .limit(10);
+
+    const { data: fbSnaps, error: fbErr } = await supabase
+      .from("ad_snapshots")
+      .select("ad_id, ad_name, campaign_name, campaign_type, publisher_platform, spend, impressions, ad_status, captured_at")
+      .eq("publisher_platform", "facebook")
+      .order("captured_at", { ascending: false })
+      .limit(10);
+
+    debug.steps.push({
+      step: "supabase_snapshots",
+      instagram: { count: (igSnaps || []).length, error: igErr?.message, recent: (igSnaps || []).slice(0, 5) },
+      facebook: { count: (fbSnaps || []).length, error: fbErr?.message, recent: (fbSnaps || []).slice(0, 5) }
+    });
+
+    res.json(debug);
+  } catch (err) {
+    debug.steps.push({ step: "fatal_error", message: err.message });
+    res.json(debug);
   }
 });
 
