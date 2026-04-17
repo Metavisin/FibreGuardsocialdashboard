@@ -500,8 +500,10 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
       spend, frequency,
       cost_per_click: cpc,
       landing_page_views: landingPageViews, lpvr,
-      video_3s_views: ttVideoViews,
-      video_3s_view_rate: ttVideoViewRate, // TikTok: 2-second view rate stored here
+      video_3s_views: 0, // TikTok doesn't have 3s views — Meta only
+      video_3s_view_rate: 0,
+      video_2s_views: ttVideo2s,
+      video_2s_view_rate: ttVideoViewRate,
       likes: ttLikes, comments: ttComments,
       shares: ttShares, saves: ttFavorites, // TikTok "favorites" = Meta "saves"
       link_clicks: clicks,
@@ -905,6 +907,8 @@ async function run() {
       lpvr: 0,
       video_3s_views: 0,
       video_3s_view_rate: 0,
+      video_2s_views: 0, // Meta doesn't have 2s views — TikTok only
+      video_2s_view_rate: 0,
       likes: 0, comments: 0, shares: 0, saves: 0, link_clicks: 0, ctr: 0,
       awareness_score: null, engagement_score: null, traffic_score: null,
       boost_recommendation: null,

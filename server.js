@@ -498,6 +498,37 @@ app.get("/debug-campaigns", async (req, res) => {
   }
 });
 
+// Migration: add video_2s columns to ad_snapshots if they don't exist
+app.get("/migrate-add-2s-columns", async (req, res) => {
+  try {
+    // Supabase PostgREST doesn't support ALTER TABLE, so we use the SQL editor via RPC
+    // Instead, try inserting with the new columns — if they don't exist, we'll get an error
+    // and need to add them manually via Supabase dashboard SQL editor
+
+    // Test if columns exist by selecting them
+    const { data, error } = await supabase
+      .from("ad_snapshots")
+      .select("video_2s_views, video_2s_view_rate")
+      .limit(1);
+
+    if (error && error.message.includes("video_2s")) {
+      res.json({
+        status: "columns_missing",
+        message: "The video_2s_views and video_2s_view_rate columns don't exist yet. Please add them in Supabase SQL Editor:",
+        sql: "ALTER TABLE ad_snapshots ADD COLUMN IF NOT EXISTS video_2s_views numeric DEFAULT 0; ALTER TABLE ad_snapshots ADD COLUMN IF NOT EXISTS video_2s_view_rate numeric DEFAULT 0;"
+      });
+    } else {
+      res.json({
+        status: "columns_exist",
+        message: "video_2s_views and video_2s_view_rate columns already exist",
+        sample: data
+      });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Diagnostic: show what's in Supabase snapshots and why objective lookup succeeds/fails
 app.get("/debug-supabase-types", async (req, res) => {
   try {
@@ -1194,8 +1225,10 @@ function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignSta
       cost_per_click: cpc,
       landing_page_views: landingPageViews,
       lpvr,
-      video_3s_views: videoViews,
-      video_3s_view_rate: viewRate, // TikTok: 2-second view rate stored here
+      video_3s_views: 0, // TikTok doesn't have 3s views — Meta only
+      video_3s_view_rate: 0,
+      video_2s_views: video2s,
+      video_2s_view_rate: viewRate,
       likes: ttLikes,
       comments: ttComments,
       shares: ttShares,
@@ -1281,6 +1314,8 @@ function processInsightRows(rows, { objectiveMap, statusMap, createdTimeMap, thu
       cost_per_click: costPerClick,
       video_3s_views: 0,
       video_3s_view_rate: 0,
+      video_2s_views: 0,
+      video_2s_view_rate: 0,
       likes: 0,
       comments: 0,
       shares: 0,
@@ -1355,7 +1390,7 @@ function addNewAdsWithoutInsights(cleanRows, { statusMap, createdTimeMap, thumbn
       date_start: null,
       date_stop: null,
       impressions: 0, reach: 0, cpm: 0, spend: 0, frequency: 0, cost_per_click: 0,
-      video_3s_views: 0, video_3s_view_rate: 0,
+      video_3s_views: 0, video_3s_view_rate: 0, video_2s_views: 0, video_2s_view_rate: 0,
       likes: 0, comments: 0, shares: 0, saves: 0, link_clicks: 0, landing_page_views: 0, ctr: 0, lpvr: 0,
       awareness_score: null, engagement_score: null, traffic_score: null,
       boost_recommendation: "new",
@@ -1777,6 +1812,8 @@ app.get("/smart-capture", async (req, res) => {
         cost_per_click: costPerClick,
         video_3s_views: 0,
         video_3s_view_rate: 0,
+        video_2s_views: 0,
+        video_2s_view_rate: 0,
         likes: 0, comments: 0, shares: 0, saves: 0, link_clicks: 0, landing_page_views: 0, ctr: 0, lpvr: 0,
         awareness_score: null, engagement_score: null, traffic_score: null,
         boost_recommendation: null,
@@ -1963,7 +2000,7 @@ app.post("/generate-report", async (req, res) => {
         publisher_platform, ad_status: adStatus,
         impressions: safeNumber(item.impressions), reach: safeNumber(item.reach),
         cpm: safeNumber(item.cpm), spend, frequency: safeNumber(item.frequency),
-        video_3s_views: 0, video_3s_view_rate: 0,
+        video_3s_views: 0, video_3s_view_rate: 0, video_2s_views: 0, video_2s_view_rate: 0,
         likes: 0, comments: 0, shares: 0, saves: 0, link_clicks: 0, landing_page_views: 0, ctr: 0, lpvr: 0,
         cost_per_click: 0
       };

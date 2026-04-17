@@ -1225,7 +1225,7 @@
       if (d.campaign_type === 'awareness' || d.campaign_type === 'reach') {
         const reachR = Math.min(TARGETS.awareness.reach > 0 ? (d.reach||0) / TARGETS.awareness.reach : 0, 2.0);
         const cpmR = Math.min((d.cpm||0) > 0 ? TARGETS.awareness.cpm / d.cpm : 0, 2.0);
-        const viewR = Math.min(TARGETS.awareness.viewRate > 0 ? (d.video_3s_view_rate||0) / TARGETS.awareness.viewRate : 0, 2.0);
+        const viewR = Math.min(TARGETS.awareness.viewRate > 0 ? getViewRate(d) / TARGETS.awareness.viewRate : 0, 2.0);
         d._score = Math.round((0.40 * reachR + 0.40 * cpmR + 0.20 * viewR) * 100);
       } else if (d.campaign_type === 'engagement' || d.campaign_type === 'community') {
         const reach1k = (d.reach||0) > 0 ? d.reach / 1000 : 0.001;
@@ -1475,9 +1475,15 @@
     return labels[type] || { title: type, sub: '' };
   }
 
-  // Platform-specific metric labels
+  // Platform-specific metric labels and values
   function getViewRateLabel() {
     return selectedPlatform === 'tiktok' ? '2s View Rate' : '3s View Rate';
+  }
+  function getViewRate(d) {
+    // TikTok uses 2s view rate, Meta uses 3s view rate
+    const platform = (d.publisher_platform || '').toLowerCase();
+    if (platform === 'tiktok') return d.video_2s_view_rate || 0;
+    return d.video_3s_view_rate || 0;
   }
   function getSavesLabel() {
     return selectedPlatform === 'tiktok' ? 'Favorites' : 'Saves';
@@ -1502,7 +1508,7 @@
       chipClass: 'chip-blue', ads: awareness, scoreKey: 'awareness_score',
       metrics: d => [
         ['Reach', fmt(d.reach)], ['CPM', '\u20ac'+(d.cpm||0).toFixed(3)],
-        [viewRateLabel, (d.video_3s_view_rate||0).toFixed(1)+'%'], ['Spend', '\u20ac'+(d.spend||0).toFixed(2)]
+        [viewRateLabel, getViewRate(d).toFixed(1)+'%'], ['Spend', '\u20ac'+(d.spend||0).toFixed(2)]
       ],
       summaryExtras: ads => []
     });
@@ -1727,7 +1733,7 @@
         h += `<tr><th>Platform</th><th>Reach</th><th>CPM</th><th>Video View Rate</th><th>Impressions</th><th>Score</th></tr>`;
         const bestReach = Math.max(...items.map(d => d.reach || 0));
         const bestCpm = Math.min(...items.filter(d => d.cpm > 0).map(d => d.cpm));
-        const bestVr = Math.max(...items.map(d => d.video_3s_view_rate || 0));
+        const bestVr = Math.max(...items.map(d => getViewRate(d)));
 
         for (const d of items.sort((a,b) => (b.reach||0) - (a.reach||0))) {
           const platDot = 'dot-' + (d.publisher_platform || 'unknown');
@@ -1735,7 +1741,7 @@
           h += `<td><div class="compare-plat-cell"><span class="compare-plat-dot ${platDot}"></span>${cap(d.publisher_platform || 'unknown')}</div></td>`;
           h += `<td>${fmt(d.reach)}${d.reach === bestReach && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>\u20ac${(d.cpm||0).toFixed(3)}${d.cpm === bestCpm && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
-          h += `<td>${(d.video_3s_view_rate||0).toFixed(1)}%${d.video_3s_view_rate === bestVr && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
+          h += `<td>${getViewRate(d).toFixed(1)}%${getViewRate(d) === bestVr && items.length > 1 ? '<span class="compare-best">Best</span>' : ''}</td>`;
           h += `<td>${fmt(d.impressions)}</td>`;
           h += `<td style="color:${d.awareness_score ? sColor(d.awareness_score) : 'var(--text-3)'}">${d.awareness_score ?? 'N/A'}</td>`;
           h += `</tr>`;
@@ -1821,7 +1827,7 @@
         stats: [
           ['Total Reach', fmt(a.reduce((s,d)=>s+(d.reach||0),0)), true],
           ['Avg CPM', '\u20ac'+(a.reduce((s,d)=>s+(d.cpm||0),0)/a.length).toFixed(3), false],
-          ['Avg View Rate', (a.reduce((s,d)=>s+(d.video_3s_view_rate||0),0)/a.length).toFixed(1)+'%', false]
+          ['Avg View Rate', (a.reduce((s,d)=>s+getViewRate(d),0)/a.length).toFixed(1)+'%', false]
         ]
       });
     }
