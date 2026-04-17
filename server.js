@@ -476,13 +476,71 @@ app.get("/debug-campaigns", async (req, res) => {
   }
 });
 
-// One-time fix: update campaign_type for all existing Supabase snapshots
-// Uses both campaign_id and campaign_name to look up objectives (handles renamed campaigns)
+// Diagnostic: show what's in Supabase snapshots and why objective lookup succeeds/fails
+app.get("/debug-supabase-types", async (req, res) => {
+  try {
+    const { objectives, objectivesById } = await fetchCampaignInfo();
+
+    const { data: snapshots, error: fetchErr } = await supabase
+      .from("ad_snapshots")
+      .select("id, campaign_name, campaign_id, campaign_type, publisher_platform, ad_name")
+      .order("id", { ascending: false })
+      .limit(200);
+
+    if (fetchErr) throw fetchErr;
+
+    // Show unique campaign_name + campaign_id combos and their lookup results
+    const seen = new Set();
+    const diagnostics = [];
+
+    for (const snap of snapshots) {
+      const key = `${snap.campaign_name}__${snap.campaign_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const idLookup = snap.campaign_id ? (objectivesById[snap.campaign_id] || null) : null;
+      const nameLookup = objectives[snap.campaign_name] || null;
+      const resolvedObjective = idLookup || nameLookup || "";
+      const correctType = objectiveToCampaignType(resolvedObjective) || detectCampaignTypeFallback(snap.campaign_name, "");
+
+      diagnostics.push({
+        campaign_name: snap.campaign_name,
+        campaign_id: snap.campaign_id,
+        current_type: snap.campaign_type,
+        correct_type: correctType,
+        needs_fix: correctType !== snap.campaign_type,
+        id_lookup: idLookup,
+        name_lookup: nameLookup,
+        resolved_objective: resolvedObjective,
+        platform: snap.publisher_platform,
+        sample_ad: snap.ad_name
+      });
+    }
+
+    // Summary
+    const typeCounts = {};
+    for (const snap of snapshots) {
+      typeCounts[snap.campaign_type] = (typeCounts[snap.campaign_type] || 0) + 1;
+    }
+
+    res.json({
+      total_snapshots_sampled: snapshots.length,
+      current_type_distribution: typeCounts,
+      unique_campaigns: diagnostics.length,
+      diagnostics: diagnostics,
+      objectives_by_name_count: Object.keys(objectives).length,
+      objectives_by_id_count: Object.keys(objectivesById).length
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message, stack: err.stack });
+  }
+});
+
+// Fix campaign_type for all existing Supabase snapshots (run after checking /debug-supabase-types)
 app.get("/fix-campaign-types", async (req, res) => {
   try {
     const { objectives, objectivesById } = await fetchCampaignInfo();
 
-    // Get all snapshots with campaign_id for reliable matching
     const { data: snapshots, error: fetchErr } = await supabase
       .from("ad_snapshots")
       .select("id, campaign_name, campaign_id, campaign_type, publisher_platform")
@@ -492,6 +550,7 @@ app.get("/fix-campaign-types", async (req, res) => {
 
     let updated = 0;
     let skipped = 0;
+    let noObjective = 0;
     const changes = [];
 
     for (const snap of snapshots) {
@@ -502,13 +561,23 @@ app.get("/fix-campaign-types", async (req, res) => {
         continue;
       }
 
-      // Try campaign_id first (reliable even after renames), then fall back to name
-      const apiObjective = (snap.campaign_id && objectivesById[snap.campaign_id])
-        || objectives[snap.campaign_name]
-        || "";
-      const correctType = objectiveToCampaignType(apiObjective) || detectCampaignTypeFallback(snap.campaign_name, "");
+      const idLookup = snap.campaign_id ? (objectivesById[snap.campaign_id] || null) : null;
+      const nameLookup = objectives[snap.campaign_name] || null;
+      const apiObjective = idLookup || nameLookup || "";
 
-      if (correctType && correctType !== snap.campaign_type) {
+      if (!apiObjective) {
+        noObjective++;
+        skipped++;
+        continue;
+      }
+
+      const correctType = objectiveToCampaignType(apiObjective);
+      if (!correctType) {
+        skipped++;
+        continue;
+      }
+
+      if (correctType !== snap.campaign_type) {
         const { error: updateErr } = await supabase
           .from("ad_snapshots")
           .update({ campaign_type: correctType })
@@ -522,7 +591,8 @@ app.get("/fix-campaign-types", async (req, res) => {
             campaign_id: snap.campaign_id,
             old_type: snap.campaign_type,
             new_type: correctType,
-            objective: apiObjective
+            objective: apiObjective,
+            matched_by: idLookup ? "campaign_id" : "campaign_name"
           });
         }
       } else {
@@ -534,7 +604,7 @@ app.get("/fix-campaign-types", async (req, res) => {
       total_snapshots: snapshots.length,
       updated,
       skipped,
-      objectives,
+      no_objective_found: noObjective,
       changes: changes.slice(0, 100)
     });
   } catch (err) {
