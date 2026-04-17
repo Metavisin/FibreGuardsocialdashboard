@@ -110,14 +110,14 @@ const TARGETS = {
 
 function computeAbsoluteScores(rows) {
   for (const row of rows) {
-    if (row.campaign_type === "awareness") {
+    if (row.campaign_type === "awareness" || row.campaign_type === "reach") {
       const reachRatio = Math.min(TARGETS.awareness.reach > 0 ? row.reach / TARGETS.awareness.reach : 0, 2.0);
       const cpmRatio = Math.min(row.cpm > 0 ? TARGETS.awareness.cpm / row.cpm : 0, 2.0);
       const viewRatio = Math.min(TARGETS.awareness.viewRate > 0 ? row.video_3s_view_rate / TARGETS.awareness.viewRate : 0, 2.0);
       row.awareness_score = round((0.40 * reachRatio + 0.40 * cpmRatio + 0.20 * viewRatio) * 100);
       row.engagement_score = null;
       row.traffic_score = null;
-    } else if (row.campaign_type === "engagement") {
+    } else if (row.campaign_type === "engagement" || row.campaign_type === "community") {
       const reach1k = row.reach > 0 ? row.reach / 1000 : 0.001;
       const shareRate = row.shares / reach1k;
       const saveRate = row.saves / reach1k;
@@ -423,14 +423,15 @@ function processTikTokSnapshots(ads, insights, campaignObjectiveMap = {}, campai
 
   function detectType(campaignName, objective) {
     const obj = (objective || "").toUpperCase();
-    if (obj === "REACH" || obj === "VIDEO_VIEWS" || obj === "RF_REACH") return "awareness";
+    // TikTok-specific types: "reach" and "community" (not "awareness"/"engagement")
+    if (obj === "REACH" || obj === "VIDEO_VIEWS" || obj === "RF_REACH") return "reach";
     if (obj === "TRAFFIC" || obj === "WEBSITE_CONVERSIONS" || obj === "CATALOG_SALES") return "traffic";
-    if (obj === "COMMUNITY_INTERACTION" || obj === "ENGAGEMENT" || obj === "LEAD_GENERATION") return "engagement";
+    if (obj === "COMMUNITY_INTERACTION" || obj === "ENGAGEMENT" || obj === "LEAD_GENERATION") return "community";
     const text = `${campaignName} ${objective}`.toLowerCase();
-    if (text.includes("awareness") || text.includes("reach") || text.includes("video_view")) return "awareness";
+    if (text.includes("awareness") || text.includes("reach") || text.includes("video_view")) return "reach";
     if (text.includes("traffic") || text.includes("click") || text.includes("website")) return "traffic";
-    if (text.includes("engagement") || text.includes("community") || text.includes("interaction")) return "engagement";
-    return "awareness";
+    if (text.includes("engagement") || text.includes("community") || text.includes("interaction")) return "community";
+    return "reach";
   }
 
   const rows = [];

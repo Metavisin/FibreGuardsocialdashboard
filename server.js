@@ -188,7 +188,7 @@ const TARGETS = {
 
 function computeAbsoluteScores(rows) {
   for (const row of rows) {
-    if (row.campaign_type === "awareness") {
+    if (row.campaign_type === "awareness" || row.campaign_type === "reach") {
       const reachRatio = Math.min(TARGETS.awareness.reach > 0 ? row.reach / TARGETS.awareness.reach : 0, 2.0);
       const cpmRatio = Math.min(row.cpm > 0 ? TARGETS.awareness.cpm / row.cpm : 0, 2.0);
       const viewRatio = Math.min(TARGETS.awareness.viewRate > 0 ? row.video_3s_view_rate / TARGETS.awareness.viewRate : 0, 2.0);
@@ -196,7 +196,7 @@ function computeAbsoluteScores(rows) {
       row.awareness_score = round(raw * 100);
       row.engagement_score = null;
       row.traffic_score = null;
-    } else if (row.campaign_type === "engagement") {
+    } else if (row.campaign_type === "engagement" || row.campaign_type === "community") {
       const reach1k = row.reach > 0 ? row.reach / 1000 : 0.001;
       const shareRate = row.shares / reach1k;
       const saveRate = row.saves / reach1k;
@@ -577,26 +577,35 @@ app.get("/fix-campaign-types", async (req, res) => {
 
     for (const snap of snapshots) {
       const platform = (snap.publisher_platform || "").toLowerCase();
+      let correctType = null;
 
       if (platform === "tiktok") {
-        skipped++;
-        continue;
-      }
+        // TikTok: rename "awareness" → "reach", "engagement" → "community"
+        if (snap.campaign_type === "awareness") {
+          correctType = "reach";
+        } else if (snap.campaign_type === "engagement") {
+          correctType = "community";
+        } else {
+          skipped++;
+          continue;
+        }
+      } else {
+        // Meta: use API objective lookup
+        const idLookup = snap.campaign_id ? (objectivesById[snap.campaign_id] || null) : null;
+        const nameLookup = objectives[snap.campaign_name] || null;
+        const apiObjective = idLookup || nameLookup || "";
 
-      const idLookup = snap.campaign_id ? (objectivesById[snap.campaign_id] || null) : null;
-      const nameLookup = objectives[snap.campaign_name] || null;
-      const apiObjective = idLookup || nameLookup || "";
+        if (!apiObjective) {
+          noObjective++;
+          skipped++;
+          continue;
+        }
 
-      if (!apiObjective) {
-        noObjective++;
-        skipped++;
-        continue;
-      }
-
-      const correctType = objectiveToCampaignType(apiObjective);
-      if (!correctType) {
-        skipped++;
-        continue;
+        correctType = objectiveToCampaignType(apiObjective);
+        if (!correctType) {
+          skipped++;
+          continue;
+        }
       }
 
       if (correctType !== snap.campaign_type) {
@@ -610,11 +619,9 @@ app.get("/fix-campaign-types", async (req, res) => {
           changes.push({
             id: snap.id,
             campaign_name: snap.campaign_name,
-            campaign_id: snap.campaign_id,
+            platform,
             old_type: snap.campaign_type,
-            new_type: correctType,
-            objective: apiObjective,
-            matched_by: idLookup ? "campaign_id" : "campaign_name"
+            new_type: correctType
           });
         }
       } else {
@@ -1071,19 +1078,19 @@ async function fetchTikTokInsights(token, adIds) {
 
 function detectTikTokCampaignType(campaignName = "", objective = "") {
   const obj = objective.toUpperCase();
-  // TikTok API objective_type values
-  if (obj === "REACH" || obj === "VIDEO_VIEWS" || obj === "RF_REACH") return "awareness";
+  // TikTok-specific types: "reach" and "community" (not "awareness"/"engagement")
+  if (obj === "REACH" || obj === "VIDEO_VIEWS" || obj === "RF_REACH") return "reach";
   if (obj === "TRAFFIC" || obj === "WEBSITE_CONVERSIONS" || obj === "CATALOG_SALES") return "traffic";
-  if (obj === "COMMUNITY_INTERACTION" || obj === "ENGAGEMENT" || obj === "LEAD_GENERATION") return "engagement";
+  if (obj === "COMMUNITY_INTERACTION" || obj === "ENGAGEMENT" || obj === "LEAD_GENERATION") return "community";
 
   // Fallback: detect from campaign name
   const text = `${campaignName} ${objective}`.toLowerCase();
-  if (text.includes("awareness") || text.includes("reach") || text.includes("video_view")) return "awareness";
+  if (text.includes("awareness") || text.includes("reach") || text.includes("video_view")) return "reach";
   if (text.includes("traffic") || text.includes("click") || text.includes("website")) return "traffic";
-  if (text.includes("engagement") || text.includes("community") || text.includes("interaction")) return "engagement";
+  if (text.includes("engagement") || text.includes("community") || text.includes("interaction")) return "community";
 
-  console.log(`TikTok: unknown objective "${objective}" for campaign "${campaignName}", defaulting to awareness`);
-  return "awareness";
+  console.log(`TikTok: unknown objective "${objective}" for campaign "${campaignName}", defaulting to reach`);
+  return "reach";
 }
 
 function processTikTokData(ads, insights, campaignObjectiveMap = {}, campaignStatusMap = {}, thumbnailMap = {}) {
@@ -1978,8 +1985,8 @@ app.post("/generate-report", async (req, res) => {
     // Separate by campaign type and status
     const activeAds = cleanRows.filter(r => r.ad_status === 'ACTIVE');
     const completedAds = cleanRows.filter(r => r.ad_status !== 'ACTIVE');
-    const awareness = cleanRows.filter(r => r.campaign_type === 'awareness');
-    const engagement = cleanRows.filter(r => r.campaign_type === 'engagement');
+    const awareness = cleanRows.filter(r => r.campaign_type === 'awareness' || r.campaign_type === 'reach');
+    const engagement = cleanRows.filter(r => r.campaign_type === 'engagement' || r.campaign_type === 'community');
     const traffic = cleanRows.filter(r => r.campaign_type === 'traffic');
 
     // Build data summary for Claude

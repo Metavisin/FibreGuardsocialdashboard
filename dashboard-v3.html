@@ -1222,12 +1222,12 @@
 
   function recalcScores(ads) {
     for (const d of ads) {
-      if (d.campaign_type === 'awareness') {
+      if (d.campaign_type === 'awareness' || d.campaign_type === 'reach') {
         const reachR = Math.min(TARGETS.awareness.reach > 0 ? (d.reach||0) / TARGETS.awareness.reach : 0, 2.0);
         const cpmR = Math.min((d.cpm||0) > 0 ? TARGETS.awareness.cpm / d.cpm : 0, 2.0);
         const viewR = Math.min(TARGETS.awareness.viewRate > 0 ? (d.video_3s_view_rate||0) / TARGETS.awareness.viewRate : 0, 2.0);
         d._score = Math.round((0.40 * reachR + 0.40 * cpmR + 0.20 * viewR) * 100);
-      } else if (d.campaign_type === 'engagement') {
+      } else if (d.campaign_type === 'engagement' || d.campaign_type === 'community') {
         const reach1k = (d.reach||0) > 0 ? d.reach / 1000 : 0.001;
         const shareRate = (d.shares||0) / reach1k;
         const saveRate = (d.saves||0) / reach1k;
@@ -1419,8 +1419,8 @@
     // Recalculate scores client-side (0-100 normalized)
     recalcScores(filtered);
 
-    const awareness = filtered.filter(d => d.campaign_type === 'awareness');
-    const engagement = filtered.filter(d => d.campaign_type === 'engagement');
+    const awareness = filtered.filter(d => d.campaign_type === 'awareness' || d.campaign_type === 'reach');
+    const engagement = filtered.filter(d => d.campaign_type === 'engagement' || d.campaign_type === 'community');
     const traffic = filtered.filter(d => d.campaign_type === 'traffic');
 
     sortAds(awareness, sort);
@@ -1702,7 +1702,7 @@
       </div>`;
 
     for (const [adName, items] of multiPlatform) {
-      const isAwareness = items[0].campaign_type === 'awareness';
+      const isAwareness = items[0].campaign_type === 'awareness' || items[0].campaign_type === 'reach';
       const isTraffic = items[0].campaign_type === 'traffic';
       const thumb = items.find(d => d.thumbnail_url)?.thumbnail_url;
 
@@ -1804,8 +1804,8 @@
     h += `</div>`; // close section
 
     // ====== CAMPAIGN TYPE COMPARISON ======
-    const awarenessAds = ads.filter(d => d.campaign_type === 'awareness');
-    const engagementAds = ads.filter(d => d.campaign_type === 'engagement');
+    const awarenessAds = ads.filter(d => d.campaign_type === 'awareness' || d.campaign_type === 'reach');
+    const engagementAds = ads.filter(d => d.campaign_type === 'engagement' || d.campaign_type === 'community');
     const trafficAds = ads.filter(d => d.campaign_type === 'traffic');
 
     // Build campaign type cards dynamically
@@ -1949,7 +1949,7 @@
 
   // Picks the metric to chart based on campaign type
   function sparklineMetric(d) {
-    if (d.campaign_type === 'awareness') return d.reach || 0;
+    if (d.campaign_type === 'awareness' || d.campaign_type === 'reach') return d.reach || 0;
     if (d.campaign_type === 'traffic') return d.link_clicks || 0;
     return (d.shares || 0) + (d.saves || 0) + (d.comments || 0) + (d.likes || 0);
   }
@@ -1991,7 +1991,7 @@
     const history = getSparklineData(ad);
     const values = history.map(d => sparklineMetric(d));
     const label = sparklineLabel(ad);
-    const color = ad.campaign_type === 'awareness' ? '#53B7E8' : ad.campaign_type === 'traffic' ? '#34D399' : '#A855F7';
+    const color = (ad.campaign_type === 'awareness' || ad.campaign_type === 'reach') ? '#53B7E8' : ad.campaign_type === 'traffic' ? '#34D399' : '#A855F7';
 
     let h = `<div class="sparkline-wrap">`;
     h += `<div class="sparkline-header">`;
