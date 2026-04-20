@@ -2538,6 +2538,86 @@ app.get("/debug/tiktok", async (req, res) => {
   }
 });
 
+// ====== SCORING AUDIT ENDPOINT ======
+app.get("/audit-scores", async (req, res) => {
+  try {
+    const audit = {};
+
+    // 1. Total rows
+    const { count: totalRows } = await supabase.from("ad_snapshots").select("id", { count: "exact", head: true });
+    audit.totalRows = totalRows;
+
+    // 2. Scored rows (score IS NOT NULL)
+    const { count: scoredRows } = await supabase.from("ad_snapshots").select("id", { count: "exact", head: true }).not("score", "is", null);
+    audit.scoredRows = scoredRows;
+
+    // 3. Unscored TikTok + Instagram rows (should be scored)
+    const { count: unscoredTI } = await supabase.from("ad_snapshots").select("id", { count: "exact", head: true }).is("score", null).in("publisher_platform", ["tiktok", "instagram"]);
+    audit.unscoredTikTokInstagram = unscoredTI;
+
+    // 4. Facebook rows (correctly unscored)
+    const { count: fbRows } = await supabase.from("ad_snapshots").select("id", { count: "exact", head: true }).eq("publisher_platform", "facebook");
+    audit.facebookRows = fbRows;
+
+    // 5. Platform / campaign_type breakdown with scored counts
+    const { data: allRows } = await supabase.from("ad_snapshots").select("publisher_platform, campaign_type, score").limit(5000);
+    const combos = {};
+    for (const r of (allRows || [])) {
+      const key = `${r.publisher_platform || "NULL"} / ${r.campaign_type || "NULL"}`;
+      if (!combos[key]) combos[key] = { total: 0, scored: 0, unscored: 0 };
+      combos[key].total++;
+      if (r.score != null) combos[key].scored++;
+      else combos[key].unscored++;
+    }
+    audit.bucketBreakdown = combos;
+
+    // 6. Sample scored rows
+    const { data: samples } = await supabase.from("ad_snapshots")
+      .select("score, benchmark, boost, publisher_platform, campaign_type, snapshot_hours, ad_id, ad_name, captured_at")
+      .not("score", "is", null)
+      .order("captured_at", { ascending: false })
+      .limit(10);
+    audit.sampleScoredRows = (samples || []).map(s => ({
+      ad_name: (s.ad_name || "").substring(0, 40),
+      platform: s.publisher_platform,
+      type: s.campaign_type,
+      hour: s.snapshot_hours,
+      score: s.score,
+      benchmark: s.benchmark,
+      boost: s.boost,
+      captured_at: s.captured_at
+    }));
+
+    // 7. Score distribution
+    const scored = (allRows || []).filter(r => r.score != null).map(r => r.score);
+    if (scored.length > 0) {
+      audit.scoreDistribution = {
+        min: Math.min(...scored),
+        max: Math.max(...scored),
+        avg: Math.round(scored.reduce((a, b) => a + b, 0) / scored.length * 10) / 10,
+        boostCount: (allRows || []).filter(r => r.score != null).length // we don't have boost in the select, use samples
+      };
+    }
+
+    // 8. Boost count
+    const { count: boostCount } = await supabase.from("ad_snapshots").select("id", { count: "exact", head: true }).eq("boost", true);
+    audit.boostTrueCount = boostCount;
+
+    const { count: boostFalse } = await supabase.from("ad_snapshots").select("id", { count: "exact", head: true }).eq("boost", false);
+    audit.boostFalseCount = boostFalse;
+
+    // 9. Unique ads that have been scored
+    const { data: uniqueScored } = await supabase.from("ad_snapshots").select("ad_id, publisher_platform").not("score", "is", null).limit(5000);
+    const uniqueAds = new Set((uniqueScored || []).map(r => `${r.ad_id}__${r.publisher_platform}`));
+    audit.uniqueScoredAds = uniqueAds.size;
+
+    audit.status = "OK";
+    res.json(audit);
+  } catch (err) {
+    res.status(500).json({ status: "ERROR", message: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
