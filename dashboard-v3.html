@@ -362,11 +362,14 @@
 
   .badge-score {
     position: absolute; top: 10px; right: 10px;
-    padding: 5px 12px; border-radius: 8px;
-    font-size: 11px; font-weight: 700; color: #fff;
+    padding: 5px 14px; border-radius: 8px;
+    font-size: 13px; font-weight: 800; color: #fff;
     background: var(--orange);
-    letter-spacing: 0.4px; text-transform: uppercase;
-    box-shadow: 0 2px 8px rgba(251,191,36,0.3);
+    letter-spacing: 0.3px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.15);
+    backdrop-filter: blur(8px);
+    z-index: 2;
   }
 
   /* CARD BODY */
@@ -1233,10 +1236,10 @@
   }
 
   function scoreBgColor(score) {
-    if (score == null) return 'rgba(255,255,255,0.05)';
-    if (score >= 70) return 'rgba(52,211,153,0.15)';
-    if (score >= 40) return 'rgba(251,191,36,0.15)';
-    return 'rgba(239,68,68,0.15)';
+    if (score == null) return 'rgba(255,255,255,0.08)';
+    if (score >= 70) return 'rgba(16,185,129,0.85)';
+    if (score >= 40) return 'rgba(245,158,11,0.85)';
+    return 'rgba(239,68,68,0.80)';
   }
 
   document.addEventListener('DOMContentLoaded', () => initLogin());
@@ -1665,11 +1668,11 @@
       }
       h += `<span class="badge-platform ${platClass}">${platLabel}</span>`;
       h += `<span class="badge-status ${statusClass}">${statusLabel}</span>`;
-      // Score badge (color-coded 0-100)
+      // Score badge (color-coded 0-100, solid background with white text)
       if (d._score != null) {
-        h += `<span class="badge-score" style="background:${scoreBgColor(d._score)}; color:${scoreColor(d._score)}; box-shadow:none;"><span>${d._score}</span></span>`;
+        h += `<span class="badge-score" style="background:${scoreBgColor(d._score)}; color:#fff;">${d._score}</span>`;
       } else {
-        h += `<span class="badge-score" style="background:rgba(255,255,255,0.05); color:var(--text-3); box-shadow:none;"><span>—</span></span>`;
+        h += `<span class="badge-score" style="background:rgba(255,255,255,0.08); color:var(--text-3);">—</span>`;
       }
       h += `</div>`;
 
