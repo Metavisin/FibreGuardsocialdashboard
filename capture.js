@@ -72,7 +72,7 @@ function getNextSnapshotHour(hoursSinceFirstData, existingSnapshotHours) {
   for (const target of SNAPSHOT_SCHEDULE) {
     if (existing.has(target)) continue;
     // Allow capture if the ad age is within 0.5 hours of the target
-    // (the cronjob runs every 30 min, so this ensures we don't miss a window)
+    // (the cronjob runs every hour, so this ensures we don't miss a window)
     if (hoursSinceFirstData >= target - 0.5) {
       return target;
     }
