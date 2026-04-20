@@ -943,6 +943,12 @@ async function run() {
     // Determine if a snapshot is due based on the fixed schedule
     const targetHour = justStartedClock ? 1 : getNextSnapshotHour(hoursSinceFirstData, existingHours);
 
+    // Skip traffic campaigns entirely — not part of the scoring system
+    if ((row.campaign_type || "").toLowerCase() === "traffic") {
+      console.log(`⏭️  Skipping "${row.ad_name}" — traffic campaign (not tracked)`);
+      continue;
+    }
+
     if (justStartedClock || targetHour !== null) {
       row.snapshot_hours = targetHour || 1;
       row.hour_label = computeHourLabel(row.snapshot_hours);
@@ -1048,6 +1054,12 @@ async function run() {
 
           // Determine if a snapshot is due based on the fixed schedule
           const ttTargetHour = justStartedClock ? 1 : getNextSnapshotHour(hoursSinceFirstData, ttExistingHours);
+
+          // Skip traffic campaigns entirely — not part of the scoring system
+          if ((row.campaign_type || "").toLowerCase() === "traffic") {
+            console.log(`⏭️  TikTok: Skipping "${row.ad_name}" — traffic campaign (not tracked)`);
+            continue;
+          }
 
           if (justStartedClock || ttTargetHour !== null) {
             row.snapshot_hours = ttTargetHour || 1;

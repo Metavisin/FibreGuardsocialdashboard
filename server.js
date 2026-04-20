@@ -619,6 +619,85 @@ app.get("/cleanup", async (req, res) => {
   }
 });
 
+// ── Purge traffic campaigns + old Instagram awareness data ──
+app.get("/purge-traffic-awareness", async (req, res) => {
+  const dry = req.query.dry === "true";
+  const results = { dryRun: dry, traffic_deleted: 0, ig_awareness_deleted: 0 };
+
+  try {
+    // 1. Count & delete all traffic rows (both platforms)
+    let trafficIds = [];
+    let from = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from("ad_snapshots")
+        .select("id")
+        .eq("campaign_type", "traffic")
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      trafficIds = trafficIds.concat(data.map(r => r.id));
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+    results.traffic_found = trafficIds.length;
+
+    if (!dry && trafficIds.length > 0) {
+      // Delete in batches of 500
+      for (let i = 0; i < trafficIds.length; i += 500) {
+        const batch = trafficIds.slice(i, i + 500);
+        const { error: delErr } = await supabase
+          .from("ad_snapshots")
+          .delete()
+          .in("id", batch);
+        if (delErr) throw new Error(`Traffic delete failed: ${delErr.message}`);
+      }
+      results.traffic_deleted = trafficIds.length;
+    }
+
+    // 2. Count & delete all Instagram awareness rows
+    let igAwarenessIds = [];
+    from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("ad_snapshots")
+        .select("id")
+        .eq("campaign_type", "awareness")
+        .in("publisher_platform", ["instagram", "Instagram"])
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      igAwarenessIds = igAwarenessIds.concat(data.map(r => r.id));
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+    results.ig_awareness_found = igAwarenessIds.length;
+
+    if (!dry && igAwarenessIds.length > 0) {
+      for (let i = 0; i < igAwarenessIds.length; i += 500) {
+        const batch = igAwarenessIds.slice(i, i + 500);
+        const { error: delErr } = await supabase
+          .from("ad_snapshots")
+          .delete()
+          .in("id", batch);
+        if (delErr) throw new Error(`IG awareness delete failed: ${delErr.message}`);
+      }
+      results.ig_awareness_deleted = igAwarenessIds.length;
+    }
+
+    results.status = "OK";
+    results.note = dry
+      ? "Dry run — nothing deleted. Remove ?dry=true to execute."
+      : "Deleted. Traffic campaigns will no longer be captured. Instagram awareness will be recaptured from current active campaigns.";
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ ...results, error: err.message });
+  }
+});
+
 // Diagnostic: show what's in Supabase snapshots and why objective lookup succeeds/fails
 app.get("/debug-supabase-types", async (req, res) => {
   try {
