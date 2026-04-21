@@ -71,9 +71,9 @@ function getNextSnapshotHour(hoursSinceFirstData, existingSnapshotHours) {
   // 2. The ad is old enough to have reached (hoursSinceFirstData >= target - 0.5)
   for (const target of SNAPSHOT_SCHEDULE) {
     if (existing.has(target)) continue;
-    // Allow capture if the ad age is within 0.5 hours of the target
-    // (the cronjob runs every hour, so this ensures we don't miss a window)
-    if (hoursSinceFirstData >= target - 0.5) {
+    // Allow capture if the ad age is within 1 hour of the target
+    // (GitHub Actions can delay runs, so a 1-hour window avoids missed snapshots)
+    if (hoursSinceFirstData >= target - 1) {
       return target;
     }
   }
