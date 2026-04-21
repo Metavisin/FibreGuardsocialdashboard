@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { scoreUnscoredRows } from "./scoring.js";
+import { run as runCapture } from "./capture.js";
 
 dotenv.config();
 
@@ -2694,6 +2695,23 @@ app.get("/audit-scores", async (req, res) => {
     res.json(audit);
   } catch (err) {
     res.status(500).json({ status: "ERROR", message: err.message });
+  }
+});
+
+// ── Cron Capture endpoint — triggered by Render Cron Job every hour ──
+app.get("/cron-capture", async (req, res) => {
+  const startTime = Date.now();
+  console.log(`\n🕐 Cron capture triggered at ${new Date().toISOString()}`);
+
+  try {
+    await runCapture();
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`✅ Cron capture completed in ${duration}s`);
+    res.json({ status: "OK", duration: `${duration}s`, timestamp: new Date().toISOString() });
+  } catch (err) {
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.error(`❌ Cron capture failed after ${duration}s:`, err.message);
+    res.status(500).json({ status: "ERROR", error: err.message, duration: `${duration}s` });
   }
 });
 

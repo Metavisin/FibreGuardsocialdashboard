@@ -21,8 +21,8 @@ const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!META_ACCESS_TOKEN || !META_AD_ACCOUNT_ID || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.error("Missing required environment variables");
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.error("Missing required Supabase environment variables");
   process.exit(1);
 }
 
@@ -1117,17 +1117,27 @@ async function run() {
   console.log(`TikTok snapshots captured: ${tikTokCaptured}`);
 }
 
-// Run
-run()
-  .then(() => {
-    console.log("\nDone.");
-    process.exit(0);
-  })
-  .catch(err => {
-    console.error("\n❌ Capture failed:", err.message);
-    if (err.response) {
-      console.error("Status:", err.response.status);
-      console.error("Response:", JSON.stringify(err.response.data, null, 2));
-    }
-    process.exit(1);
-  });
+// Export run() so it can be called from server.js
+export { run };
+
+// If executed directly (not imported), run and exit
+const isDirectRun = process.argv[1] && (
+  process.argv[1].endsWith("capture.js") ||
+  process.argv[1].includes("capture")
+);
+
+if (isDirectRun) {
+  run()
+    .then(() => {
+      console.log("\nDone.");
+      process.exit(0);
+    })
+    .catch(err => {
+      console.error("\n❌ Capture failed:", err.message);
+      if (err.response) {
+        console.error("Status:", err.response.status);
+        console.error("Response:", JSON.stringify(err.response.data, null, 2));
+      }
+      process.exit(1);
+    });
+}
