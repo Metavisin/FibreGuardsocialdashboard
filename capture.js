@@ -66,18 +66,29 @@ function computeHourLabel(hours) {
  */
 function getNextSnapshotHour(hoursSinceFirstData, existingSnapshotHours) {
   const existing = new Set(existingSnapshotHours);
-  // Find the earliest scheduled hour that:
-  // 1. We haven't captured yet
-  // 2. The ad is old enough to have reached (hoursSinceFirstData >= target - 0.5)
   for (const target of SNAPSHOT_SCHEDULE) {
     if (existing.has(target)) continue;
-    // Allow capture if the ad age is within 1 hour of the target
-    // (GitHub Actions can delay runs, so a 1-hour window avoids missed snapshots)
     if (hoursSinceFirstData >= target - 1) {
       return target;
     }
   }
-  return null; // All scheduled snapshots already captured, or ad not old enough
+  return null;
+}
+
+/**
+ * Get ALL snapshot hours that are due but not yet captured.
+ * This ensures we catch up on missed snapshots in a single run.
+ */
+function getAllDueSnapshotHours(hoursSinceFirstData, existingSnapshotHours) {
+  const existing = new Set(existingSnapshotHours);
+  const due = [];
+  for (const target of SNAPSHOT_SCHEDULE) {
+    if (existing.has(target)) continue;
+    if (hoursSinceFirstData >= target - 1) {
+      due.push(target);
+    }
+  }
+  return due;
 }
 
 async function retryWithBackoff(fn, { retries = 3, baseDelay = 2000, label = "API call" } = {}) {
@@ -940,20 +951,21 @@ async function run() {
       .eq("ad_id", row.ad_id);
     const existingHours = (existingSnaps || []).map(s => s.snapshot_hours);
 
-    // Determine if a snapshot is due based on the fixed schedule
-    const targetHour = justStartedClock ? 1 : getNextSnapshotHour(hoursSinceFirstData, existingHours);
-
     // Skip traffic campaigns entirely — not part of the scoring system
     if ((row.campaign_type || "").toLowerCase() === "traffic") {
       console.log(`⏭️  Skipping "${row.ad_name}" — traffic campaign (not tracked)`);
       continue;
     }
 
-    if (justStartedClock || targetHour !== null) {
-      row.snapshot_hours = targetHour || 1;
-      row.hour_label = computeHourLabel(row.snapshot_hours);
-      rowsToInsert.push(row);
-      console.log(`📸 Capturing "${row.ad_name}" (${row.publisher_platform}) — ${round(hoursSinceFirstData, 1)}h old, snapshot_hours=${row.snapshot_hours}${justStartedClock ? ' [FIRST CAPTURE]' : ''}`);
+    // Determine ALL snapshots due based on the fixed schedule
+    const dueHours = justStartedClock ? [1] : getAllDueSnapshotHours(hoursSinceFirstData, existingHours);
+
+    if (dueHours.length > 0) {
+      for (const targetHour of dueHours) {
+        const rowCopy = { ...row, snapshot_hours: targetHour, hour_label: computeHourLabel(targetHour) };
+        rowsToInsert.push(rowCopy);
+        console.log(`📸 Capturing "${row.ad_name}" (${row.publisher_platform}) — ${round(hoursSinceFirstData, 1)}h old, snapshot_hours=${targetHour}${justStartedClock ? ' [FIRST CAPTURE]' : ''}`);
+      }
     } else {
       console.log(`⏭️  Skipping "${row.ad_name}" — ${round(hoursSinceFirstData, 1)}h old, all scheduled snapshots captured`);
     }
@@ -1052,20 +1064,21 @@ async function run() {
             .eq("ad_id", row.ad_id);
           const ttExistingHours = (ttExistingSnaps || []).map(s => s.snapshot_hours);
 
-          // Determine if a snapshot is due based on the fixed schedule
-          const ttTargetHour = justStartedClock ? 1 : getNextSnapshotHour(hoursSinceFirstData, ttExistingHours);
-
           // Skip traffic campaigns entirely — not part of the scoring system
           if ((row.campaign_type || "").toLowerCase() === "traffic") {
             console.log(`⏭️  TikTok: Skipping "${row.ad_name}" — traffic campaign (not tracked)`);
             continue;
           }
 
-          if (justStartedClock || ttTargetHour !== null) {
-            row.snapshot_hours = ttTargetHour || 1;
-            row.hour_label = computeHourLabel(row.snapshot_hours);
-            ttRowsToInsert.push(row);
-            console.log(`📸 TikTok: Capturing "${row.ad_name}" — ${round(hoursSinceFirstData, 1)}h old, snapshot_hours=${row.snapshot_hours}${justStartedClock ? ' [FIRST CAPTURE]' : ''}`);
+          // Determine ALL snapshots due based on the fixed schedule
+          const ttDueHours = justStartedClock ? [1] : getAllDueSnapshotHours(hoursSinceFirstData, ttExistingHours);
+
+          if (ttDueHours.length > 0) {
+            for (const targetHour of ttDueHours) {
+              const rowCopy = { ...row, snapshot_hours: targetHour, hour_label: computeHourLabel(targetHour) };
+              ttRowsToInsert.push(rowCopy);
+              console.log(`📸 TikTok: Capturing "${row.ad_name}" — ${round(hoursSinceFirstData, 1)}h old, snapshot_hours=${targetHour}${justStartedClock ? ' [FIRST CAPTURE]' : ''}`);
+            }
           } else {
             console.log(`⏭️  TikTok: Skipping "${row.ad_name}" — all scheduled snapshots captured`);
           }
