@@ -928,10 +928,28 @@ async function run() {
   const trackingMap = {};
   for (const t of refreshedTracking) trackingMap[t.ad_id] = t;
 
+  // Batch-fetch all existing snapshots for ads with data (one query instead of N)
+  const metaAdIdsWithData = [...new Set(allRowsWithData.map(r => r.ad_id))];
+  const { data: allExistingSnaps } = await supabase
+    .from("ad_snapshots")
+    .select("ad_id, snapshot_hours")
+    .in("ad_id", metaAdIdsWithData);
+  const metaSnapMap = {};
+  for (const s of (allExistingSnaps || [])) {
+    if (!metaSnapMap[s.ad_id]) metaSnapMap[s.ad_id] = [];
+    metaSnapMap[s.ad_id].push(s.snapshot_hours);
+  }
+
   const rowsToInsert = [];
   for (const row of allRowsWithData) {
     const tracked = trackingMap[row.ad_id];
     if (!tracked) continue;
+
+    // Skip traffic campaigns entirely — not part of the scoring system
+    if ((row.campaign_type || "").toLowerCase() === "traffic") {
+      console.log(`⏭️  Skipping "${row.ad_name}" — traffic campaign (not tracked)`);
+      continue;
+    }
 
     // Set first_data_at if this is the first time we see real data
     let firstDataAt = tracked.first_data_at;
@@ -944,28 +962,17 @@ async function run() {
     // Calculate hours since first real data (the TRUE clock for this ad)
     const hoursSinceFirstData = firstDataAt ? hoursAgo(firstDataAt) : 0;
 
-    // Get existing snapshot hours for this ad to know what we've already captured
-    const { data: existingSnaps } = await supabase
-      .from("ad_snapshots")
-      .select("snapshot_hours")
-      .eq("ad_id", row.ad_id);
-    const existingHours = (existingSnaps || []).map(s => s.snapshot_hours);
+    // Use pre-fetched snapshot hours instead of querying per ad
+    const existingHours = metaSnapMap[row.ad_id] || [];
 
-    // Skip traffic campaigns entirely — not part of the scoring system
-    if ((row.campaign_type || "").toLowerCase() === "traffic") {
-      console.log(`⏭️  Skipping "${row.ad_name}" — traffic campaign (not tracked)`);
-      continue;
-    }
+    // Determine next snapshot due
+    const targetHour = justStartedClock ? 1 : getNextSnapshotHour(hoursSinceFirstData, existingHours);
 
-    // Determine ALL snapshots due based on the fixed schedule
-    const dueHours = justStartedClock ? [1] : getAllDueSnapshotHours(hoursSinceFirstData, existingHours);
-
-    if (dueHours.length > 0) {
-      for (const targetHour of dueHours) {
-        const rowCopy = { ...row, snapshot_hours: targetHour, hour_label: computeHourLabel(targetHour) };
-        rowsToInsert.push(rowCopy);
-        console.log(`📸 Capturing "${row.ad_name}" (${row.publisher_platform}) — ${round(hoursSinceFirstData, 1)}h old, snapshot_hours=${targetHour}${justStartedClock ? ' [FIRST CAPTURE]' : ''}`);
-      }
+    if (justStartedClock || targetHour !== null) {
+      row.snapshot_hours = targetHour || 1;
+      row.hour_label = computeHourLabel(row.snapshot_hours);
+      rowsToInsert.push(row);
+      console.log(`📸 Capturing "${row.ad_name}" (${row.publisher_platform}) — ${round(hoursSinceFirstData, 1)}h old, snapshot_hours=${row.snapshot_hours}${justStartedClock ? ' [FIRST CAPTURE]' : ''}`);
     } else {
       console.log(`⏭️  Skipping "${row.ad_name}" — ${round(hoursSinceFirstData, 1)}h old, all scheduled snapshots captured`);
     }
@@ -1041,44 +1048,54 @@ async function run() {
         ]);
         const ttRows = processTikTokSnapshots(ttAds, ttInsights, campaignObjectiveMap, campaignStatusMap, ttThumbs);
 
-        // Register ads that have data and apply throttling + first_data_at labels
+        // Register all TikTok ads in tracking (parallel)
+        await Promise.all(ttRows.map(row =>
+          upsertTracking(row.ad_id, row.ad_name || "", row.campaign_name || "")
+        ));
+
+        // Batch-fetch all tracking data and existing snapshots in parallel
+        const ttAdIds_forTracking = [...new Set(ttRows.map(r => r.ad_id))];
+        const [{ data: ttAllTracking }, { data: ttAllSnaps }] = await Promise.all([
+          supabase.from("ad_tracking").select("ad_id, first_data_at, last_snapshot_at").in("ad_id", ttAdIds_forTracking),
+          supabase.from("ad_snapshots").select("ad_id, snapshot_hours").in("ad_id", ttAdIds_forTracking)
+        ]);
+
+        const ttTrackMap = {};
+        for (const t of (ttAllTracking || [])) ttTrackMap[t.ad_id] = t;
+        const ttSnapMap = {};
+        for (const s of (ttAllSnaps || [])) {
+          if (!ttSnapMap[s.ad_id]) ttSnapMap[s.ad_id] = [];
+          ttSnapMap[s.ad_id].push(s.snapshot_hours);
+        }
+
         const ttRowsToInsert = [];
         for (const row of ttRows) {
-          await upsertTracking(row.ad_id, row.ad_name || "", row.campaign_name || "");
-
-          // Check if first_data_at already exists before setting it
-          const { data: ttTrackCheck } = await supabase
-            .from("ad_tracking")
-            .select("first_data_at, last_snapshot_at")
-            .eq("ad_id", row.ad_id)
-            .single();
-          const hadFirstDataBefore = !!ttTrackCheck?.first_data_at;
-          const firstDataAt = await setFirstDataAt(row.ad_id);
-          const justStartedClock = !hadFirstDataBefore && !!firstDataAt;
-          const hoursSinceFirstData = firstDataAt ? hoursAgo(firstDataAt) : 0;
-
-          // Get existing snapshot hours for this ad
-          const { data: ttExistingSnaps } = await supabase
-            .from("ad_snapshots")
-            .select("snapshot_hours")
-            .eq("ad_id", row.ad_id);
-          const ttExistingHours = (ttExistingSnaps || []).map(s => s.snapshot_hours);
-
-          // Skip traffic campaigns entirely — not part of the scoring system
+          // Skip traffic campaigns entirely
           if ((row.campaign_type || "").toLowerCase() === "traffic") {
             console.log(`⏭️  TikTok: Skipping "${row.ad_name}" — traffic campaign (not tracked)`);
             continue;
           }
 
-          // Determine ALL snapshots due based on the fixed schedule
-          const ttDueHours = justStartedClock ? [1] : getAllDueSnapshotHours(hoursSinceFirstData, ttExistingHours);
+          const ttTrack = ttTrackMap[row.ad_id];
+          const hadFirstDataBefore = !!ttTrack?.first_data_at;
+          let firstDataAt = ttTrack?.first_data_at;
+          let justStartedClock = false;
 
-          if (ttDueHours.length > 0) {
-            for (const targetHour of ttDueHours) {
-              const rowCopy = { ...row, snapshot_hours: targetHour, hour_label: computeHourLabel(targetHour) };
-              ttRowsToInsert.push(rowCopy);
-              console.log(`📸 TikTok: Capturing "${row.ad_name}" — ${round(hoursSinceFirstData, 1)}h old, snapshot_hours=${targetHour}${justStartedClock ? ' [FIRST CAPTURE]' : ''}`);
-            }
+          if (!firstDataAt) {
+            firstDataAt = await setFirstDataAt(row.ad_id);
+            justStartedClock = true;
+          }
+
+          const hoursSinceFirstData = firstDataAt ? hoursAgo(firstDataAt) : 0;
+          const ttExistingHours = ttSnapMap[row.ad_id] || [];
+
+          const targetHour = justStartedClock ? 1 : getNextSnapshotHour(hoursSinceFirstData, ttExistingHours);
+
+          if (justStartedClock || targetHour !== null) {
+            row.snapshot_hours = targetHour || 1;
+            row.hour_label = computeHourLabel(row.snapshot_hours);
+            ttRowsToInsert.push(row);
+            console.log(`📸 TikTok: Capturing "${row.ad_name}" — ${round(hoursSinceFirstData, 1)}h old, snapshot_hours=${row.snapshot_hours}${justStartedClock ? ' [FIRST CAPTURE]' : ''}`);
           } else {
             console.log(`⏭️  TikTok: Skipping "${row.ad_name}" — all scheduled snapshots captured`);
           }
