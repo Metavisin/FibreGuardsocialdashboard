@@ -1,9 +1,10 @@
 name: Ad Snapshot Capture
 
 on:
-  schedule:
-    # Run every 15 minutes for reliable snapshot timing
-    - cron: '*/15 * * * *'
+  # Scheduling moved to Supabase pg_cron (see supabase/migrations/20260428000000_setup_capture_cron.sql).
+  # Keep workflow_dispatch so the workflow stays available for manual triggers.
+  # schedule:
+  #   - cron: '*/15 * * * *'
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 jobs:
