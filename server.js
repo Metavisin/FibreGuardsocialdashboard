@@ -460,6 +460,48 @@ app.get("/score", async (req, res) => {
   }
 });
 
+// ====== RESCORE ENDPOINT ======
+// Clears all existing scores and re-scores from scratch
+app.get("/rescore", async (req, res) => {
+  try {
+    const dryRun = req.query.dry === "true";
+    const limit = parseInt(req.query.limit) || 5000;
+
+    console.log(`Starting full rescore (dryRun=${dryRun})...`);
+
+    // Step 1: Clear all existing scores for TikTok and Instagram
+    if (!dryRun) {
+      const { error: clearErr } = await supabase
+        .from("ad_snapshots")
+        .update({ score: null, benchmark: null, boost: null })
+        .in("publisher_platform", ["tiktok", "instagram"])
+        .not("score", "is", null);
+
+      if (clearErr) {
+        console.error("Failed to clear scores:", clearErr.message);
+        return res.status(500).json({ status: "ERROR", step: "clear", message: clearErr.message });
+      }
+      console.log("Cleared all existing scores");
+    } else {
+      console.log("[DRY RUN] Would clear all existing scores");
+    }
+
+    // Step 2: Re-score everything
+    const result = await scoreUnscoredRows(supabase, { dryRun, limit });
+
+    res.json({
+      status: "OK",
+      dryRun,
+      ...result,
+      warningCount: result.warnings.length,
+      warnings: result.warnings.slice(0, 50)
+    });
+  } catch (err) {
+    console.error("Rescore endpoint error:", err.message);
+    res.status(500).json({ status: "ERROR", message: err.message });
+  }
+});
+
 // 3. Fix campaign_types: TikTok=reach/community, Instagram=awareness/engagement
 // 4. Backfill video_2s data from old video_3s columns for TikTok records
 app.get("/cleanup", async (req, res) => {
