@@ -319,13 +319,15 @@
   .status-budget-spent { background: rgba(120,120,120,0.85); color: #fff; }
   .status-new { background: rgba(96,165,250,0.85); color: #000; }
 
-  /* Grayed-out card for completed / paused ads */
+  /* Completed / paused ads — readable but clearly secondary; existing Completed badge stays in the thumbnail corner */
   .ad-card.budget-spent {
-    opacity: 0.3;
-    filter: grayscale(80%);
-    order: 999; /* push to end */
+    opacity: 0.62;
+    filter: grayscale(35%);
+    order: 999; /* push to end of the grid so live ads always come first */
+    border: 1px solid rgba(120, 130, 145, 0.22);
+    background: rgba(20, 25, 36, 0.55);
   }
-  .ad-card.budget-spent:hover { opacity: 0.55; filter: grayscale(50%); }
+  .ad-card.budget-spent:hover { opacity: 0.95; filter: grayscale(8%); }
   /* When "Hide Completed" toggle is active, fully hide them */
   .ad-grid.hide-completed .ad-card.budget-spent { display: none; }
 
@@ -1335,7 +1337,7 @@
       </button>
       <div id="platformBadge" style="display:flex; align-items:center;"></div>
       <span class="pill active" style="cursor:default; margin:0;"><span class="live-dot"></span>Live</span>
-      <button class="pill active" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; margin:0;">Hide Completed</button>
+      <button class="pill" id="toggleCompleted" onclick="toggleCompleted(this)" style="font-size:10px; margin:0; opacity:0.6;">Hide Completed</button>
     </div>
   </div>
 
@@ -3022,7 +3024,7 @@
   }
 
   // ====== TOGGLE COMPLETED ADS ======
-  let hideCompleted = true; // Default: hide completed ads, show only live
+  let hideCompleted = false; // Default: show BOTH live and completed; toggle hides completed when on
   function toggleCompleted(btn) {
     hideCompleted = !hideCompleted;
     btn.classList.toggle('active', hideCompleted);
