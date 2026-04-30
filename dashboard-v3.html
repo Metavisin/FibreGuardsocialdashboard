@@ -929,6 +929,297 @@
     from { opacity: 0.45; transform: translateY(4px); }
     to { opacity: 1; transform: translateY(0); }
   }
+
+  /* ============ COMPARE CREATIVES MODULE ============ */
+  .icon-compare { background: var(--orange-10); color: var(--orange); }
+
+  .compare-section { margin-bottom: 36px; }
+
+  .compare-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    padding: 18px 20px 22px;
+    backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-card);
+  }
+
+  .compare-controls { display: flex; align-items: center; gap: 10px; }
+  .compare-controls .compare-y-select {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-1);
+    padding: 6px 26px 6px 10px;
+    border-radius: var(--radius-xs);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%235B6A85' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+  }
+  .compare-controls .compare-y-select:focus { outline: none; border-color: var(--blue); }
+  .compare-y-label {
+    font-size: 10px; font-weight: 600; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
+  .compare-plot-wrap { position: relative; width: 100%; margin-top: 14px; }
+  .compare-plot-area {
+    position: relative;
+    width: 100%;
+    height: 520px;
+    background: linear-gradient(180deg, rgba(96,165,250,0.02), rgba(167,139,250,0.015) 60%, transparent);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .compare-plot-inner {
+    position: absolute;
+    top: 28px; right: 28px; bottom: 44px; left: 64px;
+  }
+
+  .compare-svg-bg {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    overflow: visible;
+  }
+  .compare-grid line { stroke: rgba(255,255,255,0.04); stroke-width: 1; }
+  .compare-grid line.major { stroke: rgba(255,255,255,0.08); }
+  .compare-axis-line { stroke: rgba(255,255,255,0.12); stroke-width: 1; }
+
+  .compare-axis-label {
+    position: absolute;
+    font-size: 10px; font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+  }
+  .compare-axis-x {
+    bottom: 14px; left: 64px; right: 28px;
+    text-align: center;
+  }
+  .compare-axis-y {
+    top: 28px; left: 14px; bottom: 44px;
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .compare-tick-label {
+    position: absolute;
+    font-size: 9px; color: var(--text-3);
+    pointer-events: none;
+  }
+
+  .compare-quadrant-label {
+    position: absolute;
+    font-size: 10px; font-weight: 500;
+    color: var(--text-3);
+    letter-spacing: 0.2px;
+    pointer-events: none;
+    background: rgba(255,255,255,0.025);
+    padding: 4px 9px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.05);
+    backdrop-filter: blur(4px);
+    white-space: nowrap;
+  }
+  .compare-quadrant-label.top-right { top: 6px; right: 6px; }
+  .compare-quadrant-label.top-left { top: 6px; left: 6px; }
+  .compare-quadrant-label.bottom-right { bottom: 6px; right: 6px; }
+  .compare-quadrant-label.bottom-left { bottom: 6px; left: 6px; }
+
+  .compare-marker {
+    position: absolute;
+    width: 38px; height: 38px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
+    transform: translate(-50%, -50%);
+    background: var(--bg-3);
+    border: 2px solid transparent;
+    z-index: 2;
+  }
+  .compare-marker img {
+    width: 100%; height: 100%; object-fit: cover;
+    border-radius: 6px;
+    display: block;
+  }
+  /* Marker BORDER = absolute quality (90-day historical percentile per bucket) */
+  .compare-marker.aq-strong {
+    border-color: var(--green);
+    box-shadow: 0 0 0 1px rgba(52,211,153,0.25), 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .compare-marker.aq-ok {
+    border-color: var(--orange);
+    box-shadow: 0 0 0 1px rgba(251,191,36,0.25), 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .compare-marker.aq-weak {
+    border-color: rgba(248,113,113,0.55);
+    box-shadow: 0 0 0 1px rgba(248,113,113,0.18), 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .compare-marker.aq-unknown {
+    border-color: rgba(255,255,255,0.18);
+    border-style: dashed;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .compare-marker:hover {
+    transform: translate(-50%, -50%) scale(1.5);
+    z-index: 50;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+  }
+
+  /* Status visualisation — live = bright/full, completed/paused = dimmed + desaturated */
+  .compare-marker[data-status="completed"],
+  .compare-marker[data-status="paused"] {
+    opacity: 0.55;
+    filter: saturate(0.65);
+  }
+  .compare-marker[data-status="completed"]:hover,
+  .compare-marker[data-status="paused"]:hover {
+    opacity: 1;
+    filter: none;
+  }
+  .compare-marker-status {
+    position: absolute;
+    top: -7px; left: -6px;
+    padding: 1px 5px;
+    font-size: 7.5px; font-weight: 700;
+    letter-spacing: 0.5px;
+    line-height: 1.25;
+    border-radius: 4px;
+    border: 1.5px solid var(--bg-1);
+    text-transform: uppercase;
+    white-space: nowrap;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+    pointer-events: none;
+  }
+  .compare-marker-status.status-completed { background: rgba(124, 138, 161, 0.95); color: #fff; }
+  .compare-marker-status.status-paused    { background: rgba(251, 191, 36, 0.95); color: #1A1F2E; }
+  .compare-marker-status.status-new       { background: var(--blue); color: #0B1220; }
+  .compare-marker-status.status-issues    { background: rgba(248, 113, 113, 0.95); color: #fff; }
+
+  .compare-marker-platform {
+    position: absolute;
+    top: -5px; right: -5px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700;
+    border: 1.5px solid var(--bg-1);
+    line-height: 1;
+  }
+  .compare-marker-platform.plat-instagram {
+    background: linear-gradient(135deg, #FCAF45, #E1306C 50%, #5851DB);
+    color: #fff;
+  }
+  .compare-marker-platform.plat-tiktok {
+    background: #000;
+    color: #69C9D0;
+  }
+  .compare-marker-platform.plat-facebook {
+    background: #1877F2;
+    color: #fff;
+  }
+  .compare-marker-platform.plat-unknown {
+    background: var(--bg-3);
+    color: var(--text-3);
+  }
+
+  .compare-marker-score {
+    position: absolute;
+    bottom: -14px; left: 50%;
+    transform: translateX(-50%);
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: 9px; font-weight: 700;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    color: #fff;
+    pointer-events: none;
+  }
+  .compare-marker-score.score-good { background: rgba(52,211,153,0.85); }
+  .compare-marker-score.score-mid { background: rgba(245,158,11,0.85); }
+  .compare-marker-score.score-low { background: rgba(255,255,255,0.18); color: var(--text-2); }
+
+  .compare-tooltip {
+    position: absolute;
+    pointer-events: none;
+    display: none;
+    background: var(--bg-2);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 12px;
+    width: 240px;
+    box-shadow: var(--shadow-card-hover);
+    z-index: 200;
+    backdrop-filter: blur(20px);
+  }
+  .compare-tooltip.active { display: block; }
+  .compare-tooltip-img {
+    width: 100%; height: 96px;
+    border-radius: 8px;
+    background: var(--bg-3);
+    margin-bottom: 8px;
+    object-fit: cover;
+    display: block;
+  }
+  .compare-tooltip-title {
+    font-size: 12px; font-weight: 600;
+    color: var(--text-1);
+    margin-bottom: 2px;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .compare-tooltip-meta {
+    font-size: 10px; color: var(--text-3);
+    margin-bottom: 8px;
+    text-transform: capitalize;
+  }
+  .compare-tooltip-row {
+    display: flex; justify-content: space-between;
+    font-size: 11px;
+    padding: 2px 0;
+  }
+  .compare-tooltip-row .lbl { color: var(--text-3); }
+  .compare-tooltip-row .val { color: var(--text-1); font-weight: 500; }
+  .compare-tooltip-divider {
+    height: 1px; background: var(--border);
+    margin: 6px 0;
+  }
+
+  .compare-empty {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; color: var(--text-3); font-size: 13px; gap: 6px;
+  }
+
+  .compare-legend {
+    display: flex; flex-wrap: wrap; gap: 16px;
+    margin-top: 14px;
+    font-size: 10px;
+    color: var(--text-3);
+    align-items: center;
+  }
+  .compare-legend-group { display: flex; align-items: center; gap: 6px; }
+  .compare-legend-swatch {
+    width: 10px; height: 10px;
+    border-radius: 3px;
+  }
+  .compare-legend-divider {
+    width: 1px; height: 14px;
+    background: var(--border);
+    margin: 0 4px;
+  }
+  .compare-legend-platform {
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    display: inline-block;
+    border: 1.5px solid var(--bg-1);
+  }
 </style>
 </head>
 <body>
@@ -960,6 +1251,10 @@
   </div>
   <div class="topnav-right">
     <span class="meta-text" id="lastUpdated"></span>
+    <button class="btn" onclick="scrollToCompare()" style="background:var(--orange-10); border-color:rgba(251,191,36,0.20); color:var(--orange);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/><circle cx="7" cy="14" r="1.4" fill="currentColor"/><circle cx="11" cy="10" r="1.4" fill="currentColor"/><circle cx="15" cy="14" r="1.4" fill="currentColor"/></svg>
+      Analytics
+    </button>
     <button class="btn" onclick="openReport()" style="background:var(--blue-10); border-color:var(--blue-20); color:var(--blue);">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
       Report
@@ -1027,6 +1322,9 @@
       </button>
     </div>
   </div>
+
+  <!-- Homepage Compare Creatives — hidden by default, toggled by the Analytics button -->
+  <div id="homepageCompareWrap" style="display:none; margin-top:32px;"></div>
 
   <!-- Filters bar (shown after platform selection) -->
   <div id="filtersBar" style="display:none; margin-bottom:20px; display:none;">
@@ -1129,6 +1427,14 @@
 
   function selectPlatform(platform) {
     if (!dataLoaded) return; // Wait for API data before allowing platform selection
+    // Auto-close the homepage Compare module when the user enters a platform view
+    const cmpWrap = document.getElementById('homepageCompareWrap');
+    if (cmpWrap && cmpWrap.dataset.open === 'true') {
+      cmpWrap.style.display = 'none';
+      cmpWrap.dataset.open = 'false';
+      cmpWrap.innerHTML = '';
+      _setAnalyticsBtnActive(false);
+    }
     selectedPlatform = platform;
     document.getElementById('filterPlatform').value = platform;
     document.getElementById('platformSelector').classList.remove('active');
@@ -1527,6 +1833,8 @@
     const viewRateLabel = getViewRateLabel();
     const savesLabel = getSavesLabel();
 
+    // Compare Creatives module is now homepage-only (toggled by the Analytics button) — not rendered inside the per-platform view.
+
     // Awareness / Reach — only scoring KPIs: Reach, CPM, View Rate + Spend
     h += buildSection({
       type: 'awareness', title: awarenessLabel.title, sub: awarenessLabel.sub,
@@ -1578,7 +1886,637 @@
     if (hideCompleted) {
       document.querySelectorAll('.ad-grid').forEach(g => g.classList.add('hide-completed'));
     }
+
   }
+
+  // ====== COMPARE CREATIVES MODULE ======
+  // State
+  let _compareYMetric = 'reach';
+  let _compareBucketHistory = null;     // bucket → metric → sorted values (90-day history)
+  let _compareBucketHistoryStamp = 0;   // last build timestamp
+
+  function scrollToCompare() {
+    // Back-compat shim — the Analytics button now toggles the homepage module.
+    toggleHomepageCompare();
+  }
+
+  // Toggle the homepage Compare Creatives module (all platforms, gated behind the Analytics button)
+  function toggleHomepageCompare() {
+    const wrap = document.getElementById('homepageCompareWrap');
+    if (!wrap) return;
+
+    // If we're currently on a per-platform dashboard view, return to the homepage first
+    const platSelector = document.getElementById('platformSelector');
+    const dashContent = document.getElementById('dashboardContent');
+    if (dashContent && dashContent.style.display !== 'none' && typeof backToPlatforms === 'function') {
+      try { backToPlatforms(); } catch(e) {}
+    }
+
+    const isOpen = wrap.style.display !== 'none' && wrap.dataset.open === 'true';
+    if (isOpen) {
+      // Close
+      wrap.style.display = 'none';
+      wrap.dataset.open = 'false';
+      wrap.innerHTML = '';
+      _setAnalyticsBtnActive(false);
+      return;
+    }
+
+    // Open: build the section using ALL platforms' data
+    const sourceData = (typeof allData !== 'undefined' && Array.isArray(allData)) ? allData : [];
+    if (typeof recalcScores === 'function') {
+      try { recalcScores(sourceData); } catch(e) {}
+    }
+    // One scored snapshot per ad — keep only the latest per ad_id, with a thumbnail and a score
+    const latestByAd = new Map();
+    for (const d of sourceData) {
+      if (!d.ad_id) continue;
+      if (d._score == null) continue;
+      if (!d.thumbnail_url || !String(d.thumbnail_url).startsWith('http')) continue;
+      const cur = latestByAd.get(d.ad_id);
+      if (!cur || new Date(d.captured_at) > new Date(cur.captured_at)) {
+        latestByAd.set(d.ad_id, d);
+      }
+    }
+    const compareAds = [...latestByAd.values()];
+
+    try {
+      wrap.innerHTML = buildCompareSection(compareAds);
+    } catch(e) {
+      console.error('[Compare Creatives] buildCompareSection failed:', e);
+      wrap.innerHTML = '<div style="padding:20px;color:var(--red);">Failed to build Compare Creatives. Check console.</div>';
+    }
+    wrap.style.display = 'block';
+    wrap.dataset.open = 'true';
+    _setAnalyticsBtnActive(true);
+
+    try { initComparePlot(compareAds); }
+    catch(e) { console.error('[Compare Creatives] initComparePlot failed:', e); }
+
+    // Smooth-scroll to it
+    setTimeout(() => {
+      const sec = document.getElementById('compareSection');
+      if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+  }
+
+  function _setAnalyticsBtnActive(active) {
+    // Find the Analytics button and reflect open/closed state
+    const btns = document.querySelectorAll('.topnav-right .btn');
+    for (const b of btns) {
+      if (b.getAttribute('onclick') && b.getAttribute('onclick').indexOf('scrollToCompare') !== -1) {
+        if (active) {
+          b.style.background = 'rgba(251,191,36,0.22)';
+          b.style.borderColor = 'rgba(251,191,36,0.45)';
+          b.style.color = 'var(--orange)';
+        } else {
+          b.style.background = 'var(--orange-10)';
+          b.style.borderColor = 'rgba(251,191,36,0.20)';
+          b.style.color = 'var(--orange)';
+        }
+        break;
+      }
+    }
+  }
+
+  // Bucket definitions — mirror scoring.js exactly so absolute-quality uses the same metric set as the peer score
+  const COMPARE_BUCKETS = {
+    'tiktok__reach': {
+      metrics: [
+        { name: 'reach', label: 'Reach',   source: r => Number(r.reach) || 0,                     weight: 0.40, invert: false },
+        { name: 'cpm',   label: 'CPM',     source: r => Number(r.cpm) || 0,                       weight: 0.40, invert: true  },
+        { name: 'view2s',label: '2s view', source: r => {
+            const v = parseFloat(r.video_2s_view_rate);
+            if (!isNaN(v) && v > 0) return v;
+            const imp = Number(r.impressions) || 0;
+            const v2  = Number(r.video_2s_views) || 0;
+            return (imp > 0 && v2 > 0) ? (v2 / imp) * 100 : 0;
+          }, weight: 0.20, invert: false }
+      ],
+      usesRates: false
+    },
+    'instagram__awareness': {
+      metrics: [
+        { name: 'reach', label: 'Reach',   source: r => Number(r.reach) || 0,                     weight: 0.40, invert: false },
+        { name: 'cpm',   label: 'CPM',     source: r => Number(r.cpm) || 0,                       weight: 0.40, invert: true  },
+        { name: 'view3s',label: '3s view', source: r => {
+            const v = parseFloat(r.video_3s_view_rate);
+            if (!isNaN(v) && v > 0) return v;
+            const imp = Number(r.impressions) || 0;
+            const v3  = Number(r.video_3s_views) || 0;
+            return (imp > 0 && v3 > 0) ? (v3 / imp) * 100 : 0;
+          }, weight: 0.20, invert: false }
+      ],
+      usesRates: false
+    },
+    'tiktok__community': {
+      metrics: [
+        { name: 'share',   label: 'Share rate',     source: r => (Number(r.impressions)||0) > 0 ? (Number(r.shares)||0)/Number(r.impressions)*1000 : 0, weight: 0.40, invert: false },
+        { name: 'fav',     label: 'Favourite rate', source: r => (Number(r.impressions)||0) > 0 ? (Number(r.saves)||0)/Number(r.impressions)*1000 : 0,  weight: 0.30, invert: false },
+        { name: 'comment', label: 'Comment rate',   source: r => (Number(r.impressions)||0) > 0 ? (Number(r.comments)||0)/Number(r.impressions)*1000 : 0, weight: 0.20, invert: false },
+        { name: 'like',    label: 'Like rate',      source: r => (Number(r.impressions)||0) > 0 ? (Number(r.likes)||0)/Number(r.impressions)*1000 : 0,    weight: 0.10, invert: false }
+      ],
+      usesRates: true
+    },
+    'instagram__engagement': {
+      metrics: [
+        { name: 'share',   label: 'Share rate',   source: r => (Number(r.impressions)||0) > 0 ? (Number(r.shares)||0)/Number(r.impressions)*1000 : 0,   weight: 0.40, invert: false },
+        { name: 'save',    label: 'Save rate',    source: r => (Number(r.impressions)||0) > 0 ? (Number(r.saves)||0)/Number(r.impressions)*1000 : 0,    weight: 0.30, invert: false },
+        { name: 'comment', label: 'Comment rate', source: r => (Number(r.impressions)||0) > 0 ? (Number(r.comments)||0)/Number(r.impressions)*1000 : 0, weight: 0.20, invert: false },
+        { name: 'like',    label: 'Like rate',    source: r => (Number(r.impressions)||0) > 0 ? (Number(r.likes)||0)/Number(r.impressions)*1000 : 0,    weight: 0.10, invert: false }
+      ],
+      usesRates: true
+    }
+  };
+
+  function _bucketKeyFor(d) {
+    const p = (d.publisher_platform || '').toLowerCase();
+    let c = (d.campaign_type || '').toLowerCase();
+    // Treat TikTok 'reach' the same as 'tiktok__reach' bucket — the peer scorer does this too
+    return `${p}__${c}`;
+  }
+
+  // Build 90-day historical distributions per bucket × metric.
+  // Cached; rebuilt only if data set or window has changed.
+  function buildCompareBucketHistory(allDataArray) {
+    const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - NINETY_DAYS_MS;
+    const data = (allDataArray || []).filter(d => d.captured_at && new Date(d.captured_at).getTime() >= cutoff);
+
+    const history = {};
+    for (const d of data) {
+      const key = _bucketKeyFor(d);
+      const bucket = COMPARE_BUCKETS[key];
+      if (!bucket) continue;
+      // Skip rows that can't compute rates
+      if (bucket.usesRates) {
+        const imp = Number(d.impressions) || 0;
+        if (imp === 0) continue;
+      }
+      if (!history[key]) history[key] = {};
+      for (const metric of bucket.metrics) {
+        const v = metric.source(d);
+        if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+        if (!history[key][metric.name]) history[key][metric.name] = [];
+        history[key][metric.name].push(v);
+      }
+    }
+    // Sort each metric array ascending for fast percentile rank
+    for (const k of Object.keys(history)) {
+      for (const m of Object.keys(history[k])) {
+        history[k][m].sort((a,b) => a - b);
+      }
+    }
+    return history;
+  }
+
+  function _binarySearchInsertIdx(sortedArr, value) {
+    let lo = 0, hi = sortedArr.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (sortedArr[mid] < value) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  function _historicalPercentileRank(sortedArr, value) {
+    if (!sortedArr || sortedArr.length === 0) return null;
+    if (sortedArr.length === 1) return 50;
+    const idxBelow = _binarySearchInsertIdx(sortedArr, value);
+    let equal = 0, scan = idxBelow;
+    while (scan < sortedArr.length && sortedArr[scan] === value) { equal++; scan++; }
+    return ((idxBelow + 0.5 * equal) / sortedArr.length) * 100;
+  }
+
+  // Returns { quality: 0-100|null, breakdown: [{label, pct, invert}], state: 'strong'|'ok'|'weak'|'unknown' }
+  function computeAbsoluteQuality(d, history) {
+    const key = _bucketKeyFor(d);
+    const bucket = COMPARE_BUCKETS[key];
+    if (!bucket || !history[key]) return { quality: null, breakdown: [], state: 'unknown' };
+
+    let totalWeight = 0;
+    let weighted = 0;
+    const breakdown = [];
+
+    for (const metric of bucket.metrics) {
+      const sortedHist = history[key][metric.name];
+      if (!sortedHist || sortedHist.length < 5) continue;  // need enough peers in history
+      const value = metric.source(d);
+      if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+
+      let rank = _historicalPercentileRank(sortedHist, value);
+      if (rank == null) continue;
+      // For inverted metrics (CPM): lower is better → flip
+      if (metric.invert) rank = 100 - rank;
+
+      weighted += rank * metric.weight;
+      totalWeight += metric.weight;
+      breakdown.push({ label: metric.label, pct: Math.round(rank), invert: metric.invert });
+    }
+
+    if (totalWeight === 0) return { quality: null, breakdown: [], state: 'unknown' };
+    const quality = Math.round(weighted / totalWeight);
+    let state = 'weak';
+    if (quality >= 75) state = 'strong';
+    else if (quality >= 40) state = 'ok';
+    return { quality, breakdown, state };
+  }
+
+  // Y-axis metric registry — easy to extend later
+  const COMPARE_Y_METRICS = {
+    reach:     {
+      label: 'Reach percentile',
+      getValue: d => d.reach || 0,
+      quadrants: { tr: 'Best scale candidates', tl: 'High reach, weaker peer rank', br: 'Strong rank, room to scale', bl: 'Low priority' }
+    },
+    view_rate: {
+      label: 'Video view rate percentile',
+      getValue: d => {
+        const p = (d.publisher_platform || '').toLowerCase();
+        return p === 'tiktok' ? (d.video_2s_view_rate || 0) : (d.video_3s_view_rate || 0);
+      },
+      quadrants: { tr: 'Strongest creatives', tl: 'Engaging hook, weaker peer rank', br: 'Strong rank, weaker hook', bl: 'Underperforming' }
+    },
+    cpm:       {
+      label: 'CPM percentile (lower = higher)',
+      getValue: d => -(d.cpm || 0),
+      quadrants: { tr: 'Cheap & top-ranked', tl: 'Cheap impressions, weaker rank', br: 'Top-ranked but pricey', bl: 'Expensive & weak' }
+    },
+    spend:     {
+      label: 'Spend percentile',
+      getValue: d => d.spend || 0,
+      quadrants: { tr: 'High-spend & strong-ranked', tl: 'Spending big, weak rank', br: 'Strong rank, underspent', bl: 'Low spend, low signal' }
+    },
+  };
+
+  function setCompareYMetric(metric) {
+    if (!COMPARE_Y_METRICS[metric]) return;
+    _compareYMetric = metric;
+    const lab = document.getElementById('compareYAxisLabel');
+    if (lab) lab.textContent = COMPARE_Y_METRICS[metric].label;
+    // Re-render markers in place from the existing dataset cached on the section node
+    const section = document.getElementById('compareSection');
+    if (section && section._compareAds) initComparePlot(section._compareAds);
+  }
+
+  // Convert raw values to percentile rank (0-100) within the visible peer set
+  function _percentileRank(values, value) {
+    if (values.length <= 1) return 50;
+    let below = 0, equal = 0;
+    for (const v of values) {
+      if (v < value) below++;
+      else if (v === value) equal++;
+    }
+    // Inclusive percentile: (below + 0.5*equal) / N * 100
+    return ((below + 0.5 * equal) / values.length) * 100;
+  }
+
+  function _scoreState(score) {
+    if (score == null) return 'low';
+    if (score >= 70) return 'good';
+    if (score >= 40) return 'mid';
+    return 'low';
+  }
+
+  function buildCompareSection(ads) {
+    const n = ads.length;
+
+    // Count live vs completed/paused for the section header summary
+    const _liveN = ads.filter(a => (a.ad_status || '').toUpperCase() === 'ACTIVE').length;
+    const _completedN = ads.filter(a => ['COMPLETED','PAUSED'].includes((a.ad_status || '').toUpperCase())).length;
+
+    let h = `<div class="section compare-section" id="compareSection">`;
+    h += `<div class="section-header">
+      <div class="section-title">
+        <div class="section-icon icon-compare">▦</div>
+        <h2>Compare Creatives</h2>
+        <span class="section-count">${n} ad${n!==1?'s':''} • ${_liveN} live • ${_completedN} completed • score vs <span id="compareYAxisLabel">${COMPARE_Y_METRICS[_compareYMetric].label}</span></span>
+      </div>
+      <div class="compare-controls">
+        <span class="compare-y-label">Y-axis</span>
+        <select class="compare-y-select" onchange="setCompareYMetric(this.value)">
+          <option value="reach"${_compareYMetric==='reach'?' selected':''}>Reach percentile</option>
+          <option value="view_rate"${_compareYMetric==='view_rate'?' selected':''}>Video view rate percentile</option>
+          <option value="cpm"${_compareYMetric==='cpm'?' selected':''}>CPM percentile (lower = higher)</option>
+          <option value="spend"${_compareYMetric==='spend'?' selected':''}>Spend percentile</option>
+        </select>
+      </div>
+    </div>`;
+
+    h += `<div class="compare-card">`;
+
+    if (n === 0) {
+      h += `<div class="compare-plot-area"><div class="compare-empty">
+        <div style="font-weight:600;color:var(--text-2);">No scored ads to compare</div>
+        <div>Awareness/Reach + Engagement/Community ads with thumbnails will appear here once scored.</div>
+      </div></div>`;
+      h += `</div></div>`;
+      return h;
+    }
+
+    // Plot area structure — markers will be injected by initComparePlot
+    h += `<div class="compare-plot-wrap">
+      <div class="compare-plot-area" id="comparePlotArea">
+        <svg class="compare-svg-bg" preserveAspectRatio="none">
+          <g class="compare-grid" id="compareGridLines"></g>
+        </svg>
+        <span class="compare-quadrant-label top-right">Best scale candidates</span>
+        <span class="compare-quadrant-label top-left">High reach, weaker score</span>
+        <span class="compare-quadrant-label bottom-right">Good score, room to scale</span>
+        <span class="compare-quadrant-label bottom-left">Low priority</span>
+        <span class="compare-axis-label compare-axis-x">Score (0–100)</span>
+        <span class="compare-axis-label compare-axis-y" id="compareYLabelEl">${COMPARE_Y_METRICS[_compareYMetric].label}</span>
+        <div class="compare-plot-inner" id="comparePlotInner"></div>
+      </div>
+      <div class="compare-tooltip" id="compareTooltip"></div>
+    </div>`;
+
+    // Legend — two distinct signals: border ring (absolute quality) vs score pill (peer-relative boost decision)
+    h += `<div class="compare-legend">
+      <span class="compare-legend-group" style="color:var(--text-2); font-weight:600;">Border ring · absolute quality (vs 90d history):</span>
+      <span class="compare-legend-group"><span class="compare-legend-swatch" style="background:transparent; border:2px solid var(--green); border-radius:4px;"></span>Strong (≥75th pct)</span>
+      <span class="compare-legend-group"><span class="compare-legend-swatch" style="background:transparent; border:2px solid var(--orange); border-radius:4px;"></span>OK (40–74th)</span>
+      <span class="compare-legend-group"><span class="compare-legend-swatch" style="background:transparent; border:2px solid rgba(248,113,113,0.55); border-radius:4px;"></span>Weak (&lt;40th)</span>
+      <span class="compare-legend-divider"></span>
+      <span class="compare-legend-group" style="color:var(--text-2); font-weight:600;">Score pill · peer-relative (boost decision):</span>
+      <span class="compare-legend-group"><span class="compare-legend-swatch" style="background:rgba(52,211,153,0.85);"></span>≥70 boost</span>
+      <span class="compare-legend-group"><span class="compare-legend-swatch" style="background:rgba(245,158,11,0.85);"></span>40–69</span>
+      <span class="compare-legend-group"><span class="compare-legend-swatch" style="background:rgba(239,68,68,0.80);"></span>&lt;40</span>
+      <span class="compare-legend-divider"></span>
+      <span class="compare-legend-group" style="color:var(--text-2); font-weight:600;">Status:</span>
+      <span class="compare-legend-group"><span class="compare-legend-swatch" style="background:transparent; border:2px solid var(--text-2); border-radius:4px; opacity:1;"></span>Live (full colour)</span>
+      <span class="compare-legend-group"><span class="compare-legend-swatch" style="background:transparent; border:2px solid var(--text-2); border-radius:4px; opacity:0.55; filter:saturate(0.65);"></span>Completed / Paused (dimmed, hover for full colour)</span>
+      <span class="compare-legend-divider"></span>
+      <span class="compare-legend-group"><span class="compare-legend-platform" style="background:linear-gradient(135deg, #FCAF45, #E1306C 50%, #5851DB);"></span>Instagram</span>
+      <span class="compare-legend-group"><span class="compare-legend-platform" style="background:#000;"></span>TikTok</span>
+      <span class="compare-legend-group" style="margin-left:auto; color:var(--text-3);">Click any creative to open its history</span>
+    </div>`;
+
+    h += `</div></div>`; // close compare-card, compare-section
+    return h;
+  }
+
+  // Render gridlines + position markers inside the plot area
+  function initComparePlot(ads) {
+    const section = document.getElementById('compareSection');
+    if (!section) return;
+    section._compareAds = ads;
+
+    const plot = document.getElementById('comparePlotArea');
+    const inner = document.getElementById('comparePlotInner');
+    const tooltip = document.getElementById('compareTooltip');
+    if (!plot || !inner || !ads || ads.length === 0) return;
+
+    // Gridlines (rendered in SVG, scaled via viewBox)
+    const grid = document.getElementById('compareGridLines');
+    if (grid) {
+      // Plot inner box position relative to the plot area
+      const innerBox = inner.getBoundingClientRect();
+      const plotBox = plot.getBoundingClientRect();
+      const left = innerBox.left - plotBox.left;
+      const top = innerBox.top - plotBox.top;
+      const w = innerBox.width;
+      const h = innerBox.height;
+
+      const svg = plot.querySelector('.compare-svg-bg');
+      if (svg) {
+        svg.setAttribute('width', plotBox.width);
+        svg.setAttribute('height', plotBox.height);
+        svg.setAttribute('viewBox', `0 0 ${plotBox.width} ${plotBox.height}`);
+      }
+
+      let gridHTML = '';
+      // Vertical gridlines every 25 (major), every 12.5 minor
+      [0,25,50,75,100].forEach(p => {
+        const x = left + (p/100)*w;
+        const cls = (p === 50) ? 'major' : '';
+        gridHTML += `<line class="${cls}" x1="${x}" y1="${top}" x2="${x}" y2="${top+h}"/>`;
+      });
+      [0,25,50,75,100].forEach(p => {
+        const y = top + h - (p/100)*h;
+        const cls = (p === 50) ? 'major' : '';
+        gridHTML += `<line class="${cls}" x1="${left}" y1="${y}" x2="${left+w}" y2="${y}"/>`;
+      });
+      // Axis lines
+      gridHTML += `<line class="compare-axis-line" x1="${left}" y1="${top+h}" x2="${left+w}" y2="${top+h}"/>`;
+      gridHTML += `<line class="compare-axis-line" x1="${left}" y1="${top}" x2="${left}" y2="${top+h}"/>`;
+      grid.innerHTML = gridHTML;
+
+      // Tick labels
+      // Remove existing tick labels first
+      plot.querySelectorAll('.compare-tick-label').forEach(t => t.remove());
+      [0,25,50,75,100].forEach(p => {
+        // X-axis ticks (below)
+        const xt = document.createElement('span');
+        xt.className = 'compare-tick-label';
+        xt.style.left = (left + (p/100)*w) + 'px';
+        xt.style.top = (top + h + 6) + 'px';
+        xt.style.transform = 'translateX(-50%)';
+        xt.textContent = p;
+        plot.appendChild(xt);
+        // Y-axis ticks (left)
+        const yt = document.createElement('span');
+        yt.className = 'compare-tick-label';
+        yt.style.left = (left - 8) + 'px';
+        yt.style.top = (top + h - (p/100)*h) + 'px';
+        yt.style.transform = 'translate(-100%, -50%)';
+        yt.textContent = p;
+        plot.appendChild(yt);
+      });
+    }
+
+    // Compute Y-axis percentiles
+    const yMeta = COMPARE_Y_METRICS[_compareYMetric] || COMPARE_Y_METRICS.reach;
+    const yValues = ads.map(yMeta.getValue);
+
+    // Update quadrant labels to reflect the current Y-axis metric
+    const qLabels = yMeta.quadrants || COMPARE_Y_METRICS.reach.quadrants;
+    const qTR = plot.querySelector('.compare-quadrant-label.top-right');
+    const qTL = plot.querySelector('.compare-quadrant-label.top-left');
+    const qBR = plot.querySelector('.compare-quadrant-label.bottom-right');
+    const qBL = plot.querySelector('.compare-quadrant-label.bottom-left');
+    if (qTR) qTR.textContent = qLabels.tr;
+    if (qTL) qTL.textContent = qLabels.tl;
+    if (qBR) qBR.textContent = qLabels.br;
+    if (qBL) qBL.textContent = qLabels.bl;
+
+    // Build (or reuse) the 90-day historical distribution per bucket × metric.
+    // Source: the dashboard's `allData` global, which holds all loaded snapshots.
+    const sourceData = (typeof allData !== 'undefined' && Array.isArray(allData) && allData.length > 0) ? allData : ads;
+    if (!_compareBucketHistory || _compareBucketHistoryStamp !== sourceData.length) {
+      _compareBucketHistory = buildCompareBucketHistory(sourceData);
+      _compareBucketHistoryStamp = sourceData.length;
+    }
+    const history = _compareBucketHistory;
+
+    // Clear existing markers
+    inner.innerHTML = '';
+
+    // Build positioned markers
+    const placed = []; // [{x,y,el}] for overlap detection
+    ads.forEach(d => {
+      const score = d._score != null ? Math.max(0, Math.min(100, d._score)) : 50;
+      const yPct = _percentileRank(yValues, yMeta.getValue(d));
+      const peerState = _scoreState(d._score);
+      const aq = computeAbsoluteQuality(d, history);  // { quality, breakdown, state }
+      const aqState = aq.state;  // 'strong' | 'ok' | 'weak' | 'unknown'
+      // Stash on the data row so the tooltip can read it
+      d._aqQuality = aq.quality;
+      d._aqBreakdown = aq.breakdown;
+      d._aqState = aqState;
+      const platClass = 'plat-' + ((d.publisher_platform || 'unknown').toLowerCase());
+      const platLetter = (d.publisher_platform || '?').charAt(0).toUpperCase();
+
+      // Position
+      let xPx = (score / 100) * inner.clientWidth;
+      let yPx = inner.clientHeight - (yPct / 100) * inner.clientHeight;
+
+      // Overlap nudge: if too close to an existing marker, jitter slightly
+      const MIN_DIST = 30;
+      let attempts = 0;
+      while (attempts < 8) {
+        const conflict = placed.find(p => Math.hypot(p.x - xPx, p.y - yPx) < MIN_DIST);
+        if (!conflict) break;
+        // Spiral nudge
+        const angle = (attempts + 1) * 0.9;
+        xPx += Math.cos(angle) * 18;
+        yPx += Math.sin(angle) * 18;
+        attempts++;
+      }
+      // Clamp inside box
+      xPx = Math.max(20, Math.min(inner.clientWidth - 20, xPx));
+      yPx = Math.max(20, Math.min(inner.clientHeight - 20, yPx));
+
+      // Resolve ad status → visual treatment.
+      // LIVE is the default look (no badge). Completed / paused are dimmed + desaturated. New / Issues get a coloured badge.
+      const adStatusRaw = (d.ad_status || '').toUpperCase();
+      let dataStatus = 'live';
+      let statusBadgeHTML = '';
+      if (adStatusRaw === 'COMPLETED') {
+        dataStatus = 'completed';
+        statusBadgeHTML = `<span class="compare-marker-status status-completed">Done</span>`;
+      } else if (adStatusRaw === 'PAUSED') {
+        dataStatus = 'paused';
+        statusBadgeHTML = `<span class="compare-marker-status status-paused">Paused</span>`;
+      } else if (adStatusRaw === 'NEW') {
+        dataStatus = 'new';
+        statusBadgeHTML = `<span class="compare-marker-status status-new">New</span>`;
+      } else if (adStatusRaw === 'ISSUES') {
+        dataStatus = 'issues';
+        statusBadgeHTML = `<span class="compare-marker-status status-issues">Issue</span>`;
+      }
+      d._adStatusLabel = adStatusRaw === 'ACTIVE' ? 'Live' : (adStatusRaw ? adStatusRaw.charAt(0) + adStatusRaw.slice(1).toLowerCase() : '—');
+
+      const marker = document.createElement('div');
+      // Border ring = absolute quality (90-day historical) ; pill = peer-relative score
+      marker.className = `compare-marker aq-${aqState}`;
+      marker.dataset.status = dataStatus;
+      marker.style.left = xPx + 'px';
+      marker.style.top = yPx + 'px';
+      marker.innerHTML = `
+        <img src="${d.thumbnail_url}" alt="" loading="lazy" onerror="this.style.display='none'">
+        ${statusBadgeHTML}
+        <span class="compare-marker-platform ${platClass}" title="${d.publisher_platform || 'unknown'}">${platLetter}</span>
+        <span class="compare-marker-score score-${peerState}">${d._score != null ? d._score : '—'}</span>
+      `;
+
+      // Hover -> tooltip
+      marker.addEventListener('mouseenter', e => _showCompareTooltip(d, marker, plot, tooltip));
+      marker.addEventListener('mouseleave', e => _hideCompareTooltip(tooltip));
+      // Click -> open existing detail flow
+      marker.addEventListener('click', e => {
+        e.stopPropagation();
+        if (typeof openHistory === 'function') {
+          openHistory(d.ad_id, d.publisher_platform, d.ad_name);
+        }
+      });
+
+      inner.appendChild(marker);
+      placed.push({ x: xPx, y: yPx, el: marker });
+    });
+  }
+
+  function _showCompareTooltip(d, marker, plot, tooltip) {
+    if (!tooltip) return;
+    const platform = (d.publisher_platform || 'unknown');
+    const isTikTok = platform.toLowerCase() === 'tiktok';
+    const viewRateLabel = isTikTok ? '2s view rate' : '3s view rate';
+    const viewRate = isTikTok ? (d.video_2s_view_rate || 0) : (d.video_3s_view_rate || 0);
+    const benchmark = d._benchmark != null ? d._benchmark : null;
+    const isBoost = d._boost === 'boost';
+
+    const safeName = (d.ad_name || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const safeThumb = d.thumbnail_url || '';
+    const scoreColorVal = d._score != null
+      ? (d._score >= 70 ? 'var(--green)' : d._score >= 40 ? 'var(--orange)' : 'var(--red)')
+      : 'var(--text-3)';
+
+    // Absolute quality color
+    const aqColor = d._aqState === 'strong' ? 'var(--green)'
+                  : d._aqState === 'ok'     ? 'var(--orange)'
+                  : d._aqState === 'weak'   ? 'var(--red)'
+                  : 'var(--text-3)';
+    const aqLabelMap = { strong: 'Strong', ok: 'OK', weak: 'Weak', unknown: 'Insufficient history' };
+    const aqLabel = aqLabelMap[d._aqState] || '—';
+
+    let breakdownHTML = '';
+    if (d._aqBreakdown && d._aqBreakdown.length > 0) {
+      breakdownHTML = `<div class="compare-tooltip-divider"></div>
+        <div class="compare-tooltip-row" style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-3);font-weight:600;padding-top:1px;"><span class="lbl">Per-metric pct (90d)</span><span class="val"></span></div>` +
+        d._aqBreakdown.map(b => {
+          const c = b.pct >= 75 ? 'var(--green)' : b.pct >= 40 ? 'var(--orange)' : 'var(--red)';
+          return `<div class="compare-tooltip-row"><span class="lbl">${b.label}${b.invert ? ' (lower=better)' : ''}</span><span class="val" style="color:${c}">${b.pct}<span style="color:var(--text-3);font-weight:400;font-size:10px;">th</span></span></div>`;
+        }).join('');
+    }
+
+    tooltip.innerHTML = `
+      ${safeThumb ? `<img class="compare-tooltip-img" src="${safeThumb}" alt="" onerror="this.style.display='none'">` : ''}
+      <div class="compare-tooltip-title">${safeName || 'Untitled ad'}</div>
+      <div class="compare-tooltip-meta">${platform} · ${d.campaign_type || '—'}${d._adStatusLabel ? ' · <span style="color:'+(d._adStatusLabel==='Live'?'var(--green)':d._adStatusLabel==='Completed'?'var(--text-3)':d._adStatusLabel==='Paused'?'var(--orange)':'var(--text-2)')+'; font-weight:600;">'+d._adStatusLabel+'</span>' : ''}${isBoost ? ' · <span style="color:var(--green); font-weight:700;">BOOST</span>' : ''}</div>
+      <div class="compare-tooltip-row"><span class="lbl">Peer score</span><span class="val" style="color:${scoreColorVal}">${d._score != null ? d._score : '—'}${benchmark != null ? ' / bench ' + benchmark : ''}</span></div>
+      <div class="compare-tooltip-row"><span class="lbl">Absolute quality</span><span class="val" style="color:${aqColor}">${d._aqQuality != null ? d._aqQuality + ' · ' + aqLabel : aqLabel}</span></div>
+      <div class="compare-tooltip-divider"></div>
+      <div class="compare-tooltip-row"><span class="lbl">Reach</span><span class="val">${(d.reach||0).toLocaleString()}</span></div>
+      <div class="compare-tooltip-row"><span class="lbl">CPM</span><span class="val">€${(d.cpm||0).toFixed(3)}</span></div>
+      <div class="compare-tooltip-row"><span class="lbl">${viewRateLabel}</span><span class="val">${viewRate.toFixed(1)}%</span></div>
+      <div class="compare-tooltip-row"><span class="lbl">Spend</span><span class="val">€${(d.spend||0).toFixed(2)}</span></div>
+      ${breakdownHTML}
+    `;
+
+    // Position tooltip relative to plot, near marker
+    const plotBox = plot.getBoundingClientRect();
+    const markerBox = marker.getBoundingClientRect();
+    let left = (markerBox.left - plotBox.left) + markerBox.width + 12;
+    let top = (markerBox.top - plotBox.top) - 10;
+
+    // Show first to measure
+    tooltip.classList.add('active');
+    const tWidth = tooltip.offsetWidth || 240;
+    const tHeight = tooltip.offsetHeight || 240;
+
+    // Keep inside plot bounds
+    if (left + tWidth > plotBox.width - 8) {
+      left = (markerBox.left - plotBox.left) - tWidth - 12;
+    }
+    if (top + tHeight > plotBox.height - 8) {
+      top = plotBox.height - tHeight - 8;
+    }
+    if (top < 8) top = 8;
+
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+  }
+
+  function _hideCompareTooltip(tooltip) {
+    if (tooltip) tooltip.classList.remove('active');
+  }
+
+  // Re-position on window resize
+  window.addEventListener('resize', () => {
+    const section = document.getElementById('compareSection');
+    if (section && section._compareAds) initComparePlot(section._compareAds);
+  });
 
   function buildSection({type, title, sub, iconClass, icon, formula, chipClass, ads, scoreKey, metrics, summaryExtras}) {
     let h = `<div class="section">`;
