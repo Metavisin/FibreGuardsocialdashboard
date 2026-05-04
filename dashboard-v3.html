@@ -1047,7 +1047,16 @@
     width: 100%; height: 100%; object-fit: cover;
     border-radius: 6px;
     display: block;
+    background: var(--bg-3);
   }
+  .compare-marker .compare-marker-placeholder {
+    width: 100%; height: 100%;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--bg-3), var(--bg-2));
+    color: var(--text-3);
+  }
+  .compare-marker .compare-marker-placeholder svg { width: 18px; height: 18px; opacity: 0.7; }
   /* Marker BORDER = absolute quality (90-day historical percentile per bucket) */
   .compare-marker.aq-strong {
     border-color: var(--green);
@@ -1893,7 +1902,7 @@
 
   // ====== COMPARE CREATIVES MODULE ======
   // State
-  let _compareYMetric = 'reach';
+  let _compareYMetric = 'quality';
   let _compareBucketHistory = null;     // bucket → metric → sorted values (90-day history)
   let _compareBucketHistoryStamp = 0;   // last build timestamp
 
@@ -2126,7 +2135,14 @@
   }
 
   // Y-axis metric registry — easy to extend later
+  // `usesAbsoluteQuality: true` means the value is already a 0-100 score (no peer-percentile re-rank)
   const COMPARE_Y_METRICS = {
+    quality:   {
+      label: 'Overall quality (0–100)',
+      getValue: d => (d._aqQuality != null ? d._aqQuality : 50),
+      usesAbsoluteQuality: true,
+      quadrants: { tr: 'Best all-round creatives', tl: 'High quality, weaker peer rank', br: 'Strong rank, mixed quality', bl: 'Underperforming all round' }
+    },
     reach:     {
       label: 'Reach percentile',
       getValue: d => d.reach || 0,
@@ -2198,6 +2214,7 @@
       <div class="compare-controls">
         <span class="compare-y-label">Y-axis</span>
         <select class="compare-y-select" onchange="setCompareYMetric(this.value)">
+          <option value="quality"${_compareYMetric==='quality'?' selected':''}>Overall quality (all-round)</option>
           <option value="reach"${_compareYMetric==='reach'?' selected':''}>Reach percentile</option>
           <option value="view_rate"${_compareYMetric==='view_rate'?' selected':''}>Video view rate percentile</option>
           <option value="cpm"${_compareYMetric==='cpm'?' selected':''}>CPM percentile (lower = higher)</option>
@@ -2328,9 +2345,7 @@
       });
     }
 
-    // Compute Y-axis percentiles
     const yMeta = COMPARE_Y_METRICS[_compareYMetric] || COMPARE_Y_METRICS.reach;
-    const yValues = ads.map(yMeta.getValue);
 
     // Update quadrant labels to reflect the current Y-axis metric
     const qLabels = yMeta.quadrants || COMPARE_Y_METRICS.reach.quadrants;
@@ -2352,6 +2367,18 @@
     }
     const history = _compareBucketHistory;
 
+    // First pass: compute absolute quality (90d historical) for every ad and stash it
+    // on the data row so both the Y-axis and the tooltip can read it.
+    ads.forEach(d => {
+      const aq = computeAbsoluteQuality(d, history);
+      d._aqQuality = aq.quality;
+      d._aqBreakdown = aq.breakdown;
+      d._aqState = aq.state;
+    });
+
+    // Compute Y-axis values AFTER AQ has been stashed (so the 'quality' getValue can read d._aqQuality)
+    const yValues = ads.map(yMeta.getValue);
+
     // Clear existing markers
     inner.innerHTML = '';
 
@@ -2359,14 +2386,13 @@
     const placed = []; // [{x,y,el}] for overlap detection
     ads.forEach(d => {
       const score = d._score != null ? Math.max(0, Math.min(100, d._score)) : 50;
-      const yPct = _percentileRank(yValues, yMeta.getValue(d));
+      // For "Overall quality" the value is already an absolute 0-100 score, so plot it directly.
+      // For all other metrics, rank within the visible peer set so positions are comparable.
+      const yPct = yMeta.usesAbsoluteQuality
+        ? Math.max(0, Math.min(100, yMeta.getValue(d)))
+        : _percentileRank(yValues, yMeta.getValue(d));
       const peerState = _scoreState(d._score);
-      const aq = computeAbsoluteQuality(d, history);  // { quality, breakdown, state }
-      const aqState = aq.state;  // 'strong' | 'ok' | 'weak' | 'unknown'
-      // Stash on the data row so the tooltip can read it
-      d._aqQuality = aq.quality;
-      d._aqBreakdown = aq.breakdown;
-      d._aqState = aqState;
+      const aqState = d._aqState;  // 'strong' | 'ok' | 'weak' | 'unknown'
       const platClass = 'plat-' + ((d.publisher_platform || 'unknown').toLowerCase());
       const platLetter = (d.publisher_platform || '?').charAt(0).toUpperCase();
 
@@ -2416,8 +2442,13 @@
       marker.dataset.status = dataStatus;
       marker.style.left = xPx + 'px';
       marker.style.top = yPx + 'px';
+      const placeholderHTML = `<div class="compare-marker-placeholder" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div>`;
+      const thumb = (d.thumbnail_url || '').trim();
+      const visualHTML = thumb
+        ? `<img src="${thumb}" alt="" decoding="async" referrerpolicy="no-referrer" onerror="this.outerHTML='${placeholderHTML.replace(/'/g, "\\'")}'">`
+        : placeholderHTML;
       marker.innerHTML = `
-        <img src="${d.thumbnail_url}" alt="" loading="lazy" onerror="this.style.display='none'">
+        ${visualHTML}
         ${statusBadgeHTML}
         <span class="compare-marker-platform ${platClass}" title="${d.publisher_platform || 'unknown'}">${platLetter}</span>
         <span class="compare-marker-score score-${peerState}">${d._score != null ? d._score : '—'}</span>
