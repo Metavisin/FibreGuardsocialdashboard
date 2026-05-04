@@ -1043,18 +1043,28 @@
     border: 2px solid transparent;
     z-index: 2;
   }
-  .compare-marker img {
+  .compare-marker .compare-marker-visual {
+    position: relative;
+    width: 100%; height: 100%;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .compare-marker .compare-marker-thumb {
+    position: absolute; inset: 0;
     width: 100%; height: 100%; object-fit: cover;
     border-radius: 6px;
     display: block;
     background: var(--bg-3);
+    z-index: 1;
   }
   .compare-marker .compare-marker-placeholder {
+    position: absolute; inset: 0;
     width: 100%; height: 100%;
     border-radius: 6px;
     display: flex; align-items: center; justify-content: center;
     background: linear-gradient(135deg, var(--bg-3), var(--bg-2));
     color: var(--text-3);
+    z-index: 0;
   }
   .compare-marker .compare-marker-placeholder svg { width: 18px; height: 18px; opacity: 0.7; }
   /* Marker BORDER = absolute quality (90-day historical percentile per bucket) */
@@ -2444,15 +2454,24 @@
       marker.style.top = yPx + 'px';
       const placeholderHTML = `<div class="compare-marker-placeholder" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div>`;
       const thumb = (d.thumbnail_url || '').trim();
+      // Render placeholder first; if we have a thumbnail URL, also render an <img> on top.
+      // This guarantees the marker is never visually empty — if the image fails or doesn't load, the placeholder is still there underneath.
       const visualHTML = thumb
-        ? `<img src="${thumb}" alt="" decoding="async" referrerpolicy="no-referrer" onerror="this.outerHTML='${placeholderHTML.replace(/'/g, "\\'")}'">`
-        : placeholderHTML;
+        ? `<div class="compare-marker-visual">${placeholderHTML}<img class="compare-marker-thumb" src="${thumb}" alt="" decoding="async" referrerpolicy="no-referrer"></div>`
+        : `<div class="compare-marker-visual">${placeholderHTML}</div>`;
       marker.innerHTML = `
         ${visualHTML}
         ${statusBadgeHTML}
         <span class="compare-marker-platform ${platClass}" title="${d.publisher_platform || 'unknown'}">${platLetter}</span>
         <span class="compare-marker-score score-${peerState}">${d._score != null ? d._score : '—'}</span>
       `;
+      // Wire image fallback via JS to avoid attribute-quote escaping issues.
+      const imgEl = marker.querySelector('img.compare-marker-thumb');
+      if (imgEl) {
+        imgEl.addEventListener('error', () => { imgEl.style.display = 'none'; }, { once: true });
+        // If the image is already broken (e.g. cached 404), error may have fired before listener attached.
+        if (imgEl.complete && imgEl.naturalWidth === 0) imgEl.style.display = 'none';
+      }
 
       // Hover -> tooltip
       marker.addEventListener('mouseenter', e => _showCompareTooltip(d, marker, plot, tooltip));
